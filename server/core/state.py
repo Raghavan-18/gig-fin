@@ -13,6 +13,7 @@ import threading
 
 from core.dataset import load
 from core.engine import Engine
+from core.ledger import Ledger
 from ml.forecast import DailyQuantileForecaster, HorizonForecaster, coverage_report
 
 TRAIN_UPTO = 150          # last 30 days held out to report honest calibration
@@ -63,12 +64,37 @@ class AppState:
                              "hf30": self.hf30, "daily_fc": self.daily_fc,
                              "calibration": self.calibration}, fh)
 
+        # Collect any existing manual cash transactions so they persist across restarts
+        existing_cash_txns = []
+        dhara_path = os.path.join(DB_DIR, "dhara.db")
+        if os.path.exists(dhara_path):
+            try:
+                temp_ledger = Ledger(dhara_path)
+                existing_cash_txns = temp_ledger.get_cash_transactions()
+                temp_ledger.close()
+            except Exception:
+                existing_cash_txns = []
+
         self.engines: dict[str, Engine] = {}
         for policy in ("DHARA", "TRADITIONAL"):
             path = os.path.join(DB_DIR, f"{policy.lower()}.db")
             if os.path.exists(path):
                 os.remove(path)
             self.engines[policy] = Engine(ds, self.hf14, policy, path).run()
+
+        # Re-post persisted manual cash transactions into Dhara engine ledger
+        for ctx in existing_cash_txns:
+            try:
+                self.dhara.ledger.post_cash_transaction(
+                    kind=ctx["type"],
+                    amount=ctx["amount"],
+                    category=ctx["category"],
+                    description=ctx["description"],
+                    date_str=ctx["date"],
+                    metadata=ctx,
+                )
+            except Exception:
+                pass
 
         self.summaries = {p: e.out.summary(ds, e.ledger) for p, e in self.engines.items()}
 

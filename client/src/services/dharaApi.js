@@ -83,10 +83,55 @@ export const dharaApi = {
     });
   },
 
+  /** Multi-turn conversational chat assistant */
+  chatAssistant(message, history = [], personaId = 'ravi', forceDeterministic = true) {
+    return request('/api/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        history,
+        persona_id: personaId,
+        force_deterministic: forceDeterministic,
+      }),
+    });
+  },
+
+
   /** Traditional vs Dhara cash-flow-indexed comparison engine */
   getComparison() {
     return request('/api/compare');
   },
+
+  /** Unified transaction stream from FastAPI ledger & simulated AA */
+  getTransactions({ filter = 'All', verification_status = 'All', search = '', limit = 200 } = {}) {
+    const params = new URLSearchParams();
+    if (filter && filter !== 'All') params.append('filter', filter);
+    if (verification_status && verification_status !== 'All') params.append('verification_status', verification_status);
+    if (search && search.trim()) params.append('search', search.trim());
+    if (limit) params.append('limit', limit);
+    const qs = params.toString();
+    return request(`/api/transactions${qs ? `?${qs}` : ''}`);
+  },
+
+  /** Add manual cash transaction with optional receipt proof */
+  addCashTransaction(formData) {
+    return request('/api/transactions/cash', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  /** Get transaction proof evidence summary */
+  getTransactionEvidence() {
+    return request('/api/transactions/evidence');
+  },
+
+  /** Get secure receipt URL */
+  getReceiptUrl(identifier) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    return `${baseUrl}/api/transactions/${identifier}/receipt`;
+  },
 };
+
 
 export default dharaApi;

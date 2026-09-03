@@ -9,13 +9,22 @@ screens and the demo flow are unchanged.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from assistant.runner import ask as assistant_ask, has_api_key
+from core.receipt import (
+    process_receipt,
+    verify_receipt_against_transaction,
+    ReceiptValidationError,
+    RECEIPTS_DIR,
+)
+
 from core import safe_to_save as s2s_mod
 from core import shortfall as shortfall_mod
 from core.compare import run_both
@@ -344,13 +353,29 @@ def credit_apply(req: CreditRequest) -> dict:
 
 class AskRequest(BaseModel):
     text: str
+    history: list[dict] | None = None
+    force_deterministic: bool = False
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    persona_id: str = "ravi"
+    history: list[dict] | None = None
     force_deterministic: bool = False
 
 
 @app.post("/api/assistant/ask")
 def assistant(req: AskRequest) -> dict:
-    turn = assistant_ask(req.text, force_deterministic=req.force_deterministic)
+    turn = assistant_ask(req.text, history=req.history, force_deterministic=req.force_deterministic)
     return turn.to_dict()
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(req: ChatRequest) -> dict:
+    turn = assistant_ask(req.message, history=req.history, force_deterministic=req.force_deterministic)
+    return turn.to_dict()
+
 
 
 _compare_cache: dict[str, Any] = {}
@@ -372,7 +397,299 @@ def compare() -> dict:
                                                       "MANDATE_DISABLED")][:20]}
 
 
+@app.post("/api/transactions/cash")
+async def add_cash_transaction(
+    type: str = Form(..., description="Transaction type: income or expense"),
+    amount: float = Form(..., description="Transaction amount in rupees"),
+    category: str = Form(..., description="Transaction category"),
+    description: str = Form(..., description="Transaction description"),
+    date: str = Form(..., description="Transaction date YYYY-MM-DD"),
+    receipt: UploadFile | None = File(None),
+    force_self_reported: bool = Form(False, description="Proceed as self-reported despite receipt mismatch"),
+) -> dict:
+    """Manually add a cash transaction with optional receipt verification.
+    
+    1. Validates inputs and uploaded file security.
+    2. Runs genuine OCR / document parsing on receipt if present.
+    3. If receipt matches user entry: sets verification_status = 'receipt_verified'.
+    4. If no receipt: sets verification_status = 'self_reported'.
+    5. If receipt mismatch: halts with 422 mismatch details unless force_self_reported is True.
+    6. Posts entry to double-entry ledger (DR Expense/CR Cash or DR Cash/CR Income).
+    """
+    if amount <= 0:
+        raise HTTPException(400, "Transaction amount must be positive.")
+
+    clean_type = type.lower().strip()
+    if clean_type not in ("income", "expense", "credit", "debit"):
+        raise HTTPException(400, "Transaction type must be 'income' or 'expense'.")
+
+    s = st()
+    extracted_receipt = None
+    verification_status = "self_reported"
+    verification_reason = "Entered manually by user without supporting receipt evidence."
+    ocr_amount = None
+    ocr_date = None
+    ocr_merchant = None
+    receipt_present = False
+    receipt_id = None
+    receipt_filename = None
+    receipt_uploaded_at = None
+
+    if receipt and receipt.filename:
+        receipt_present = True
+        receipt_filename = receipt.filename
+        receipt_uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        try:
+            file_bytes = await receipt.read()
+            extracted_receipt = process_receipt(
+                file_bytes, receipt.filename, receipt.content_type
+            )
+            receipt_id = extracted_receipt["receipt_id"]
+        except ReceiptValidationError as rve:
+            raise HTTPException(400, str(rve))
+        except Exception as e:
+            raise HTTPException(500, f"Receipt processing failed: {str(e)}")
+
+        verification = verify_receipt_against_transaction(
+            extracted_receipt, amount, date
+        )
+        ocr_amount = verification.get("ocr_amount")
+        ocr_date = verification.get("ocr_date")
+        ocr_merchant = verification.get("ocr_merchant")
+        verification_reason = verification.get("reason", "")
+
+        if verification["is_verified"]:
+            verification_status = "receipt_verified"
+        else:
+            if not force_self_reported:
+                # Do NOT silently mark as verified. Give user options.
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "message": verification_reason,
+                        "ocr_amount": ocr_amount,
+                        "ocr_date": ocr_date,
+                        "ocr_merchant": ocr_merchant,
+                        "entered_amount": amount,
+                        "entered_date": date,
+                        "can_save_as_self_reported": True,
+                    },
+                )
+            verification_status = "self_reported"
+
+    # Post to double-entry ledger
+    record = s.dhara.ledger.post_cash_transaction(
+        kind=clean_type,
+        amount=amount,
+        category=category,
+        description=description,
+        date_str=date,
+        metadata={
+            "verification_status": verification_status,
+            "receipt_present": receipt_present,
+            "receipt_id": receipt_id,
+            "receipt_filename": receipt_filename,
+            "receipt_uploaded_at": receipt_uploaded_at,
+            "ocr_processed": bool(extracted_receipt),
+            "ocr_amount": ocr_amount,
+            "ocr_date": ocr_date,
+            "ocr_merchant": ocr_merchant,
+            "verification_reason": verification_reason,
+        },
+    )
+
+    return record
+
+
+@app.get("/api/transactions")
+def get_transactions(
+    filter: str = Query("All", description="Type/Category filter: All, Income, Expenses, Fuel, etc."),
+    verification_status: str = Query("All", description="Provenance filter: All, aa_verified, receipt_verified, self_reported, synthetic_demo"),
+    search: str = Query("", description="Search term for description, platform, category"),
+    limit: int = Query(200, description="Max transactions to return"),
+) -> dict:
+    """Unified transaction feed combining simulated Account Aggregator records and manual cash entries."""
+    s = st()
+    all_txns: list[dict] = []
+
+    # 1. Manual Cash Transactions from Ledger
+    cash_txns = s.dhara.ledger.get_cash_transactions()
+    for ctx in cash_txns:
+        all_txns.append({
+            "id": ctx["id"],
+            "txn_id": ctx["txn_id"],
+            "date": ctx["date"],
+            "description": ctx["description"],
+            "category": ctx["category"],
+            "type": ctx["type"],
+            "amount": ctx["amount"],
+            "platform": "Cash Manual",
+            "source": "cash_manual",
+            "verification_status": ctx["verification_status"],
+            "receipt_present": ctx["receipt_present"],
+            "receipt_id": ctx["receipt_id"],
+            "receipt_filename": ctx["receipt_filename"],
+            "receipt_uploaded_at": ctx["receipt_uploaded_at"],
+            "ocr_processed": ctx["ocr_processed"],
+            "ocr_amount": ctx["ocr_amount"],
+            "ocr_date": ctx["ocr_date"],
+            "ocr_merchant": ctx["ocr_merchant"],
+            "verification_reason": ctx["verification_reason"],
+            "has_receipt": bool(ctx["receipt_id"]),
+        })
+
+    # 2. Seeded Account Aggregator Events
+    for idx, e in enumerate(s.ds.events):
+        is_credit = e["kind"] == "INCOME"
+        amt = float(e["amount"])
+        is_synthetic_drought = (
+            s.ds.drought["start_idx"] <= e["idx"] < s.ds.drought["start_idx"] + s.ds.drought["days"]
+        )
+        is_self_transfer = e.get("category") == "SELF_TRANSFER"
+
+        if is_self_transfer or is_synthetic_drought:
+            v_status = "synthetic_demo"
+            v_reason = "Synthetic transaction used for hackathon demonstration."
+        else:
+            v_status = "aa_verified"
+            v_reason = "Transaction imported through simulated Account Aggregator flow."
+
+        all_txns.append({
+            "id": f"aa_{e['idx']}_{idx}_{e['date']}",
+            "txn_id": f"aa_txn_{idx}",
+            "date": e["date"],
+            "description": e["narration"],
+            "category": e.get("category", "Gig Income" if is_credit else "Daily Burn"),
+            "type": "credit" if is_credit else "debit",
+            "amount": amt,
+            "platform": e.get("platform", "Swiggy / Zomato" if is_credit else "UPI Merchant"),
+            "source": "account_aggregator",
+            "verification_status": v_status,
+            "receipt_present": False,
+            "receipt_id": None,
+            "receipt_filename": None,
+            "receipt_uploaded_at": None,
+            "ocr_processed": False,
+            "ocr_amount": None,
+            "ocr_date": None,
+            "ocr_merchant": None,
+            "verification_reason": v_reason,
+            "has_receipt": False,
+        })
+
+    # Summary Stats across all transactions
+    inc_total = sum(t["amount"] for t in all_txns if t["type"] == "credit")
+    exp_total = sum(t["amount"] for t in all_txns if t["type"] == "debit")
+    evidence_counts = {
+        "total_manual_cash": len(cash_txns),
+        "receipt_verified": sum(1 for t in cash_txns if t["verification_status"] == "receipt_verified"),
+        "self_reported": sum(1 for t in cash_txns if t["verification_status"] == "self_reported"),
+        "aa_verified": sum(1 for t in all_txns if t["verification_status"] == "aa_verified"),
+        "synthetic_demo": sum(1 for t in all_txns if t["verification_status"] == "synthetic_demo"),
+    }
+
+    # Sort descending by date
+    all_txns.sort(key=lambda t: t["date"], reverse=True)
+
+    # Filter by category/type
+    filtered = all_txns
+    if filter and filter.lower() != "all":
+        fl = filter.lower()
+        if fl == "income":
+            filtered = [t for t in filtered if t["type"] == "credit"]
+        elif fl in ("expenses", "expense"):
+            filtered = [t for t in filtered if t["type"] == "debit"]
+        else:
+            filtered = [t for t in filtered if t["category"].lower() == fl]
+
+    # Filter by verification status
+    if verification_status and verification_status.lower() != "all":
+        vs = verification_status.lower()
+        filtered = [t for t in filtered if t["verification_status"].lower() == vs]
+
+    # Filter by search
+    if search and search.strip():
+        q = search.lower().strip()
+        filtered = [
+            t for t in filtered
+            if q in t["description"].lower()
+            or q in t["category"].lower()
+            or q in t["platform"].lower()
+            or q in t["verification_status"].lower()
+        ]
+
+    return {
+        "transactions": filtered[:limit],
+        "total_count": len(filtered),
+        "summary": {
+            "total_income": inc_total,
+            "total_expenses": exp_total,
+            "net_cash_flow": inc_total - exp_total,
+        },
+        "evidence": evidence_counts,
+    }
+
+
+@app.get("/api/transactions/evidence")
+def get_transaction_evidence() -> dict:
+    """Summary of transaction verification evidence for Dashboard and Profile."""
+    s = st()
+    cash_txns = s.dhara.ledger.get_cash_transactions()
+    receipt_verified = sum(1 for t in cash_txns if t["verification_status"] == "receipt_verified")
+    self_reported = sum(1 for t in cash_txns if t["verification_status"] == "self_reported")
+
+    return {
+        "manual_cash_transactions": len(cash_txns),
+        "receipt_verified": receipt_verified,
+        "self_reported": self_reported,
+        "aa_verified_count": len(s.ds.events),
+        "provenance": {
+            "bank_upi": "Simulated Account Aggregator (Automatically imported financial transactions)",
+            "manual_cash_receipt_verified": "Supporting receipt evidence processed by Dhara",
+            "manual_cash_self_reported": "No receipt evidence attached. Entered manually by user",
+            "synthetic_data": "Generated data used for demonstration",
+        },
+    }
+
+
+@app.get("/api/transactions/{identifier}/receipt")
+def get_transaction_receipt(identifier: str):
+    """Securely stream uploaded receipt file by cash transaction ID or receipt ID."""
+    s = st()
+    # Check if identifier matches a cash transaction
+    cash_txns = s.dhara.ledger.get_cash_transactions()
+    target_rcpt_id = identifier
+    for ctx in cash_txns:
+        if ctx["id"] == identifier or ctx["txn_id"] == identifier or ctx["receipt_id"] == identifier:
+            target_rcpt_id = ctx["receipt_id"]
+            break
+
+    if not target_rcpt_id:
+        raise HTTPException(404, "No receipt associated with this transaction.")
+
+    # Locate file in RECEIPTS_DIR
+    matched_file = None
+    for f in RECEIPTS_DIR.iterdir():
+        if f.stem == target_rcpt_id or f.name.startswith(target_rcpt_id):
+            matched_file = f
+            break
+
+    if not matched_file or not matched_file.is_file():
+        raise HTTPException(404, "Receipt file not found on disk.")
+
+    media_map = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".pdf": "application/pdf",
+    }
+    media_type = media_map.get(matched_file.suffix.lower(), "application/octet-stream")
+    return FileResponse(matched_file, media_type=media_type)
+
+
 @app.get("/")
+
 def root() -> dict:
     return {
         "app": "Dhara Financial Resilience API",

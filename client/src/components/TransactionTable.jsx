@@ -1,9 +1,12 @@
 import TransactionCard from './TransactionCard';
 import { CategoryIcon } from '../utils/categoryUtils';
+import VerificationBadge from './VerificationBadge';
+import { Paperclip } from 'lucide-react';
 
 export default function TransactionTable({
   transactions = [],
   emptyMessage = 'No transactions found matching your criteria.',
+  onSelectTransaction,
 }) {
   if (transactions.length === 0) {
     return (
@@ -18,7 +21,11 @@ export default function TransactionTable({
       {/* Mobile Card List View (< sm) */}
       <div className="space-y-2.5 sm:hidden">
         {transactions.map((t) => (
-          <TransactionCard key={t.id} transaction={t} />
+          <TransactionCard
+            key={t.id}
+            transaction={t}
+            onClick={() => onSelectTransaction?.(t)}
+          />
         ))}
       </div>
 
@@ -30,7 +37,7 @@ export default function TransactionTable({
               <th className="py-3.5 px-4">Date</th>
               <th className="py-3.5 px-4">Description</th>
               <th className="py-3.5 px-4">Platform / Source</th>
-              <th className="py-3.5 px-4">Classification</th>
+              <th className="py-3.5 px-4">Verification</th>
               <th className="py-3.5 px-4">Category</th>
               <th className="py-3.5 px-4">Type</th>
               <th className="py-3.5 px-4 text-right">Amount</th>
@@ -39,11 +46,13 @@ export default function TransactionTable({
           <tbody className="divide-y divide-slate-800/60 font-medium">
             {transactions.map((t) => {
               const isCredit = t.type === 'credit';
+              const hasReceipt = Boolean(t.receipt_present || t.receipt_id);
 
               return (
                 <tr
                   key={t.id}
-                  className="hover:bg-slate-850/50 transition-colors"
+                  onClick={() => onSelectTransaction?.(t)}
+                  className="hover:bg-slate-850/60 transition-colors cursor-pointer group"
                 >
                   <td className="py-3.5 px-4 text-slate-400 font-mono whitespace-nowrap">
                     {t.date}
@@ -58,22 +67,32 @@ export default function TransactionTable({
                     >
                       <CategoryIcon category={t.category} type={t.type} className="w-3.5 h-3.5" />
                     </div>
-                    <span className="truncate max-w-[180px]">{t.description}</span>
+                    <div className="flex items-center gap-1.5 truncate max-w-[200px]">
+                      <span className="truncate group-hover:text-blue-300 transition-colors">
+                        {t.description}
+                      </span>
+                      {hasReceipt && (
+                        <span title="Receipt attached" className="flex-shrink-0">
+                          <Paperclip className="w-3.5 h-3.5 text-blue-400" />
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="py-3.5 px-4 text-slate-300">
-                    {t.platform || 'Platform'}
+                  <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                    {t.platform || (t.source === 'cash_manual' ? 'Cash Manual' : 'Platform')}
                   </td>
-                  <td className="py-3.5 px-4">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/20">
-                      Rule-based
-                    </span>
+                  <td className="py-3.5 px-4 whitespace-nowrap">
+                    <VerificationBadge
+                      status={t.verification_status}
+                      size="sm"
+                    />
                   </td>
-                  <td className="py-3.5 px-4">
+                  <td className="py-3.5 px-4 whitespace-nowrap">
                     <span className="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300 border border-slate-700">
                       {t.category}
                     </span>
                   </td>
-                  <td className="py-3.5 px-4 uppercase text-[11px] font-bold">
+                  <td className="py-3.5 px-4 uppercase text-[11px] font-bold whitespace-nowrap">
                     <span
                       className={
                         isCredit ? 'text-emerald-400' : 'text-slate-400'

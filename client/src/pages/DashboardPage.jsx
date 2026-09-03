@@ -25,6 +25,7 @@ import {
   Award,
   AlertTriangle,
   RefreshCw,
+  FileCheck,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState(null);
   const [creditData, setCreditData] = useState(null);
   const [timelineEvents, setTimelineEvents] = useState([]);
+  const [evidenceData, setEvidenceData] = useState(null);
 
   const loadAll = () => {
     setLoading(true);
@@ -44,12 +46,15 @@ export default function DashboardPage() {
       dharaApi.getDashboard(),
       dharaApi.applyCredit(5000).catch(() => null),
       dharaApi.getTimeline(30).catch(() => ({ events: [] })),
+      dharaApi.getTransactionEvidence().catch(() => null),
     ])
-      .then(([dash, cred, tl]) => {
+      .then(([dash, cred, tl, ev]) => {
         setDashboardData(dash);
         setCreditData(cred);
         setTimelineEvents(tl?.events || []);
+        setEvidenceData(ev);
       })
+
       .catch((err) => {
         setError(err.message);
       })
@@ -64,12 +69,14 @@ export default function DashboardPage() {
       dharaApi.getDashboard(),
       dharaApi.applyCredit(5000).catch(() => null),
       dharaApi.getTimeline(30).catch(() => ({ events: [] })),
+      dharaApi.getTransactionEvidence().catch(() => null),
     ])
-      .then(([dash, cred, tl]) => {
+      .then(([dash, cred, tl, ev]) => {
         if (!active) return;
         setDashboardData(dash);
         setCreditData(cred);
         setTimelineEvents(tl?.events || []);
+        setEvidenceData(ev);
       })
       .catch((err) => {
         if (!active) return;
@@ -79,6 +86,7 @@ export default function DashboardPage() {
         if (!active) return;
         setLoading(false);
       });
+
 
     return () => {
       active = false;
@@ -206,7 +214,48 @@ export default function DashboardPage() {
               description={`${totals.sweeps_paused || 0} sweeps paused for safety`}
             />
           </div>
+
+          {/* Transaction Evidence Section (Requirement 20) */}
+          <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950/20 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600/15 text-blue-400 flex items-center justify-center font-bold flex-shrink-0">
+                <FileCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Transaction Proof Evidence</span>
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                    Dual Provenance
+                  </span>
+                </h4>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  {evidenceData?.manual_cash_transactions || 0} Manual Cash Transactions recorded in double-entry ledger
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-xs font-bold text-emerald-300">
+                  {evidenceData?.receipt_verified || 0} Receipt Verified
+                </span>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span className="text-xs font-bold text-amber-300">
+                  {evidenceData?.self_reported || 0} Self Reported
+                </span>
+              </div>
+              <Link to="/transactions">
+                <Button variant="outline" size="sm">
+                  View Statements →
+                </Button>
+              </Link>
+            </div>
+          </div>
         </section>
+
 
         {/* ========================================================================= */}
         {/* SECTION 2: INCOME FORECAST (LIVE QUANTILE BACKEND)                        */}

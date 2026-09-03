@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AppLayout from '../components/AppLayout';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import SimulationBadge from '../components/SimulationBadge';
 import TransactionTable from '../components/TransactionTable';
 import TransactionFilter from '../components/TransactionFilter';
+import AddCashTransactionModal from '../components/AddCashTransactionModal';
+import TransactionDetailModal from '../components/TransactionDetailModal';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { dharaApi } from '../services/dharaApi';
@@ -16,10 +18,14 @@ import {
   Database,
   AlertTriangle,
   RefreshCw,
+  Plus,
+  Receipt,
 } from 'lucide-react';
+
 
 export default function TransactionsPage() {
   const [filter, setFilter] = useState('All');
+  const [verificationFilter, setVerificationFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -29,61 +35,70 @@ export default function TransactionsPage() {
     totalExpenses: 0,
     netCashFlow: 0,
   });
+  const [evidence, setEvidence] = useState({
+    total_manual_cash: 0,
+    receipt_verified: 0,
+    self_reported: 0,
+    aa_verified: 0,
+    synthetic_demo: 0,
+  });
 
-  const processData = (data) => {
-    const events = data.sample || [];
-    let inc = 0;
-    let exp = 0;
+  // Modal states
+  const [isAddCashOpen, setIsAddCashOpen] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
 
-    const mapped = events.map((e, idx) => {
-      const isCredit = e.kind === 'INCOME';
-      const amt = Math.round(Number(e.amount) || 0);
-      if (isCredit) inc += amt;
-      else exp += amt;
-
-      return {
-        id: `tx_${idx}_${e.date}`,
-        date: e.date,
-        description: e.narration,
-        category: e.category || (isCredit ? 'Platform Payout' : 'Daily Burn'),
-        type: isCredit ? 'credit' : 'debit',
-        amount: amt,
-        platform: e.platform || (isCredit ? 'Swiggy / Zomato' : 'UPI Merchant'),
-        classificationMethod: e.classification_method || 'Rule-based',
-      };
-    });
-
-    setTransactions(mapped.reverse());
-    setSummary({
-      totalIncome: inc,
-      totalExpenses: exp,
-      netCashFlow: inc - exp,
-    });
-  };
-
-  const loadTransactions = () => {
-    setLoading(true);
+  const fetchTransactions = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     setError(null);
-    dharaApi
-      .getClassify(120)
-      .then((data) => {
-        processData(data);
-      })
-      .catch((err) => {
-        setError(err.message);
-      })
-      .finally(() => {
-        setLoading(false);
+    try {
+      const data = await dharaApi.getTransactions({
+        filter,
+        verification_status: verificationFilter,
+        search,
+        limit: 250,
       });
-  };
+
+      setTransactions(data.transactions || []);
+      if (data.summary) {
+        setSummary({
+          totalIncome: Math.round(data.summary.total_income || 0),
+          totalExpenses: Math.round(data.summary.total_expenses || 0),
+          netCashFlow: Math.round(data.summary.net_cash_flow || 0),
+        });
+      }
+      if (data.evidence) {
+        setEvidence(data.evidence);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load transactions');
+    } finally {
+      if (isInitial) setLoading(false);
+    }
+  }, [filter, verificationFilter, search]);
 
   useEffect(() => {
     let active = true;
     dharaApi
-      .getClassify(120)
+      .getTransactions({
+
+        filter,
+        verification_status: verificationFilter,
+        search,
+        limit: 250,
+      })
       .then((data) => {
         if (!active) return;
-        processData(data);
+        setTransactions(data.transactions || []);
+        if (data.summary) {
+          setSummary({
+            totalIncome: Math.round(data.summary.total_income || 0),
+            totalExpenses: Math.round(data.summary.total_expenses || 0),
+            netCashFlow: Math.round(data.summary.net_cash_flow || 0),
+          });
+        }
+        if (data.evidence) {
+          setEvidence(data.evidence);
+        }
       })
       .catch((err) => {
         if (!active) return;
@@ -97,23 +112,15 @@ export default function TransactionsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [filter, verificationFilter, search]);
 
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((t) => {
-      const matchSearch =
-        t.description.toLowerCase().includes(search.toLowerCase()) ||
-        t.category.toLowerCase().includes(search.toLowerCase()) ||
-        t.platform.toLowerCase().includes(search.toLowerCase());
-
-      if (!matchSearch) return false;
-
-      if (filter === 'All') return true;
-      if (filter === 'Income') return t.type === 'credit';
-      if (filter === 'Expenses') return t.type === 'debit';
-      return t.category.toLowerCase() === filter.toLowerCase();
-    });
-  }, [transactions, filter, search]);
+  const handleCashAdded = (newTxn) => {
+    // Refresh list from backend to maintain single source of truth
+    fetchTransactions(false);
+    if (newTxn) {
+      setSelectedTransaction(newTxn);
+    }
+  };
 
   return (
     <AppLayout maxWidth="max-w-7xl">
@@ -122,42 +129,87 @@ export default function TransactionsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <PageHeader
             title="Transactions"
-            subtitle="Seeded statement stream loaded directly from Dhara FastAPI ledger"
+            subtitle="Double-entry statement stream with proof-based cash verification"
             badge="Live FastAPI Stream"
             center={false}
             className="mb-0"
           />
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Plus}
+              iconPosition="left"
+              onClick={() => setIsAddCashOpen(true)}
+              className="shadow-lg shadow-blue-600/20 font-bold"
+            >
+              + Add Cash Transaction
+            </Button>
             <SimulationBadge size="sm" />
           </div>
         </div>
 
-        {/* Notice Banner */}
-        <div className="p-3.5 rounded-xl bg-blue-950/25 border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-300">
-          <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-blue-400 flex-shrink-0" />
-            <span>
-              Synthetic statements imported via simulated Account Aggregator. Classification method:{' '}
-              <strong className="text-white">Rule-based</strong>.
+        {/* Clear Explanation Notice Banner (Requirement 1) */}
+        <div className="p-4 rounded-xl bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-indigo-950/30 border border-blue-500/25 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-slate-300 shadow-md">
+          <div className="flex items-start md:items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center flex-shrink-0 mt-0.5 md:mt-0">
+              <Database className="w-4 h-4" />
+            </div>
+            <div className="space-y-0.5">
+              <p className="font-semibold text-white">
+                Account Aggregator & Cash Proof Flow
+              </p>
+              <p className="text-slate-400">
+                Bank and UPI transactions are automatically imported through the simulated Account Aggregator flow. Cash transactions can be added manually.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end md:self-auto flex-shrink-0">
+            <span className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300">
+              {transactions.length} live records
             </span>
           </div>
-          <span className="text-slate-400 text-[11px]">
-            {transactions.length} live events
-          </span>
         </div>
+
+        {/* Evidence Pill Badges Bar (Requirement 20) */}
+        {evidence.total_manual_cash > 0 && (
+          <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-4 flex-wrap text-xs">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-emerald-400" />
+              <span className="font-bold text-white">
+                {evidence.total_manual_cash} Manual Cash Transactions Recorded:
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1 text-emerald-300 font-semibold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                ✓ {evidence.receipt_verified} Receipt Verified
+              </span>
+              <span className="flex items-center gap-1 text-amber-300 font-semibold bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                ⚠ {evidence.self_reported} Self Reported
+              </span>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="py-20 text-center space-y-3">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-slate-400">Loading ledger transaction history...</p>
+            <p className="text-xs text-slate-400">Loading ledger transaction history & cash proofs...</p>
           </div>
         ) : error ? (
           <div className="py-12 text-center max-w-md mx-auto space-y-3">
             <AlertTriangle className="w-8 h-8 text-rose-400 mx-auto" />
             <p className="text-sm font-semibold text-white">Error loading transactions</p>
             <p className="text-xs text-slate-400">{error}</p>
-            <Button variant="outline" size="sm" onClick={loadTransactions} icon={RefreshCw} iconPosition="left">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchTransactions(true)}
+              icon={RefreshCw}
+              iconPosition="left"
+            >
               Retry
             </Button>
           </div>
@@ -168,15 +220,15 @@ export default function TransactionsPage() {
               <StatCard
                 title="Total Income"
                 amount={summary.totalIncome}
-                trend={{ value: 'Seeded events', isPositive: true }}
+                trend={{ value: 'Seeded & cash income', isPositive: true }}
                 icon={TrendingUp}
                 variant="emerald"
-                description="Platform payouts assessed"
+                description="Assessed earnings stream"
               />
               <StatCard
                 title="Total Expenses"
                 amount={summary.totalExpenses}
-                trend={{ value: 'Daily burn & EMI', isPositive: false }}
+                trend={{ value: 'Burn, debits & cash', isPositive: false }}
                 icon={CreditCard}
                 variant="rose"
                 description="Operational spend & debits"
@@ -191,16 +243,23 @@ export default function TransactionsPage() {
               />
             </div>
 
-            {/* Filter and Search Bar */}
+            {/* Filter, Provenance, and Search Bar */}
             <Card className="p-5 border-slate-800 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <TransactionFilter activeFilter={filter} onFilterChange={setFilter} />
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex-1">
+                  <TransactionFilter
+                    activeFilter={filter}
+                    onFilterChange={setFilter}
+                    activeVerificationFilter={verificationFilter}
+                    onVerificationFilterChange={setVerificationFilter}
+                  />
+                </div>
 
-                <div className="relative w-full sm:w-64">
+                <div className="relative w-full lg:w-64 flex-shrink-0 self-start lg:self-center">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Search narration, platform..."
+                    placeholder="Search narration, platform, status..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors shadow-inner"
@@ -208,15 +267,30 @@ export default function TransactionsPage() {
                 </div>
               </div>
 
-              {/* Transactions Table with Rule-based classification column */}
+              {/* Transactions Table with Verification provenance column */}
               <TransactionTable
-                transactions={filteredTransactions}
+                transactions={transactions}
+                onSelectTransaction={(txn) => setSelectedTransaction(txn)}
                 emptyMessage="No transactions found matching your criteria."
               />
             </Card>
           </>
         )}
       </div>
+
+      {/* Add Cash Transaction Modal */}
+      <AddCashTransactionModal
+        isOpen={isAddCashOpen}
+        onClose={() => setIsAddCashOpen(false)}
+        onSuccess={handleCashAdded}
+      />
+
+      {/* Transaction Detail Modal */}
+      <TransactionDetailModal
+        transaction={selectedTransaction}
+        isOpen={Boolean(selectedTransaction)}
+        onClose={() => setSelectedTransaction(null)}
+      />
     </AppLayout>
   );
 }

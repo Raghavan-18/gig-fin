@@ -81,6 +81,28 @@ CREATE TABLE IF NOT EXISTS reservations (
     status         TEXT NOT NULL,
     created_at     REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cash_transactions (
+    cash_txn_id         TEXT PRIMARY KEY,
+    txn_id              TEXT NOT NULL,
+    kind                TEXT NOT NULL,
+    amount              REAL NOT NULL,
+    category            TEXT NOT NULL,
+    description         TEXT NOT NULL,
+    date                TEXT NOT NULL,
+    source              TEXT NOT NULL DEFAULT 'cash_manual',
+    verification_status TEXT NOT NULL,
+    receipt_present     INTEGER NOT NULL DEFAULT 0,
+    receipt_id          TEXT,
+    receipt_filename    TEXT,
+    receipt_uploaded_at TEXT,
+    ocr_processed       INTEGER NOT NULL DEFAULT 0,
+    ocr_amount          REAL,
+    ocr_date            TEXT,
+    ocr_merchant        TEXT,
+    verification_reason TEXT,
+    created_at          REAL NOT NULL
+);
 """
 
 
@@ -352,7 +374,162 @@ class Ledger:
                 "  FROM postings p WHERE p.account_id = balances.account_id),0)"
                 " - reserved_minor, updated_at=?", (now,))
 
+    # -------------------------------------------------------- cash transactions
+    @_locked
+    def post_cash_transaction(
+        self,
+        kind: str,
+        amount: float,
+        category: str,
+        description: str,
+        date_str: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Post a manual cash transaction in double-entry ledger.
+
+        Cash Expense:
+          DR Expense (cash_expense)
+          CR Cash (cash_wallet)
+        Cash Income:
+          DR Cash (cash_wallet)
+          CR Income (cash_income)
+
+        Preserves DR = CR net zero invariant.
+        """
+        # Ensure cash accounts exist
+        self.open_account("cash_wallet", "ravi", "CASH_WALLET", "Cash Wallet")
+        self.open_account("cash_expense", "ravi", "EXPENSE", "Manual Cash Expense")
+        self.open_account("cash_income", "ravi", "INCOME", "Manual Cash Income")
+
+        minor = int(round(amount * 100))
+        if minor <= 0:
+            raise LedgerError("Cash transaction amount must be positive")
+
+        norm_kind = kind.lower().strip()
+        if norm_kind in ("income", "credit"):
+            txn_type = "CASH_INCOME"
+            legs = [Leg("cash_wallet", DR, minor), Leg("cash_income", CR, minor)]
+        else:
+            txn_type = "CASH_EXPENSE"
+            legs = [Leg("cash_expense", DR, minor), Leg("cash_wallet", CR, minor)]
+
+        meta = dict(metadata or {})
+        meta.update({
+            "source": "cash_manual",
+            "kind": "INCOME" if norm_kind in ("income", "credit") else "EXPENSE",
+            "category": category,
+            "description": description,
+            "amount": amount,
+            "date": date_str,
+        })
+
+        idem_key = meta.get("idempotency_key") or f"cash:{uuid.uuid4().hex}"
+        txn_id = self.post(txn_type, idem_key, legs, occurred_on=date_str, metadata=meta)
+
+        cash_txn_id = f"ctxn_{uuid.uuid4().hex[:16]}"
+        now = time.time()
+        with self._tx():
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO cash_transactions(
+                    cash_txn_id, txn_id, kind, amount, category, description, date,
+                    source, verification_status, receipt_present, receipt_id,
+                    receipt_filename, receipt_uploaded_at, ocr_processed,
+                    ocr_amount, ocr_date, ocr_merchant, verification_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cash_txn_id,
+                    txn_id,
+                    meta["kind"],
+                    amount,
+                    category,
+                    description,
+                    date_str,
+                    "cash_manual",
+                    meta.get("verification_status", "self_reported"),
+                    1 if meta.get("receipt_present") else 0,
+                    meta.get("receipt_id"),
+                    meta.get("receipt_filename"),
+                    meta.get("receipt_uploaded_at"),
+                    1 if meta.get("ocr_processed") else 0,
+                    meta.get("ocr_amount"),
+                    meta.get("ocr_date"),
+                    meta.get("ocr_merchant"),
+                    meta.get("verification_reason", ""),
+                    now,
+                ),
+            )
+
+        return {
+            "id": cash_txn_id,
+            "txn_id": txn_id,
+            "type": "credit" if meta["kind"] == "INCOME" else "debit",
+            "amount": amount,
+            "category": category,
+            "description": description,
+            "date": date_str,
+            "source": "cash_manual",
+            "verification_status": meta.get("verification_status", "self_reported"),
+            "receipt_present": bool(meta.get("receipt_present")),
+            "receipt_id": meta.get("receipt_id"),
+            "receipt_filename": meta.get("receipt_filename"),
+            "receipt_uploaded_at": meta.get("receipt_uploaded_at"),
+            "ocr_processed": bool(meta.get("ocr_processed")),
+            "ocr_amount": meta.get("ocr_amount"),
+            "ocr_date": meta.get("ocr_date"),
+            "ocr_merchant": meta.get("ocr_merchant"),
+            "verification_reason": meta.get("verification_reason", ""),
+            "created_at": now,
+        }
+
+    @_locked
+    def get_cash_transactions(self) -> list[dict]:
+        """Fetch all recorded manual cash transactions ordered by date descending."""
+        rows = self.conn.execute(
+            "SELECT * FROM cash_transactions ORDER BY date DESC, created_at DESC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["cash_txn_id"],
+                "txn_id": r["txn_id"],
+                "type": "credit" if r["kind"] == "INCOME" else "debit",
+                "amount": float(r["amount"]),
+                "category": r["category"],
+                "description": r["description"],
+                "date": r["date"],
+                "source": r["source"],
+                "verification_status": r["verification_status"],
+                "receipt_present": bool(r["receipt_present"]),
+                "receipt_id": r["receipt_id"],
+                "receipt_filename": r["receipt_filename"],
+                "receipt_uploaded_at": r["receipt_uploaded_at"],
+                "ocr_processed": bool(r["ocr_processed"]),
+                "ocr_amount": float(r["ocr_amount"]) if r["ocr_amount"] is not None else None,
+                "ocr_date": r["ocr_date"],
+                "ocr_merchant": r["ocr_merchant"],
+                "verification_reason": r["verification_reason"],
+                "created_at": r["created_at"],
+            })
+        return result
+
+    @_locked
+    def get_cash_evidence_summary(self) -> dict:
+        """Summary statistics for cash transaction verification."""
+        rows = self.conn.execute(
+            "SELECT verification_status, COUNT(*) as cnt FROM cash_transactions GROUP BY verification_status"
+        ).fetchall()
+        counts = {r["verification_status"]: r["cnt"] for r in rows}
+        total = sum(counts.values())
+        return {
+            "total_manual_cash": total,
+            "receipt_verified_count": counts.get("receipt_verified", 0),
+            "self_reported_count": counts.get("self_reported", 0),
+        }
+
     # -------------------------------------------------------------- misc
+
     def _tx(self):
         return _Tx(self.conn, self._lock)
 

@@ -161,7 +161,91 @@ export default function ProfilePage() {
             </span>
           </div>
         </Card>
+
+        {/* Data Provenance & Trust Hierarchy Section (Requirement 21) */}
+        <Card className="p-6 border-slate-800 text-left space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div>
+              <h3 className="font-bold text-base text-white">
+                Data Provenance & Source Tiers
+              </h3>
+              <p className="text-xs text-slate-400">
+                How transaction evidence and financial data sources are verified in Dhara
+              </p>
+            </div>
+            <Link
+              to="/transactions"
+              className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+            >
+              View Transactions →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+            {/* 1. BANK / UPI */}
+            <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  BANK / UPI
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                  ✓ Simulated AA
+                </span>
+              </div>
+              <h4 className="text-xs font-bold text-white">
+                Simulated Account Aggregator
+              </h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Automatically imported financial transactions directly from institutional banking consent.
+              </p>
+            </div>
+
+            {/* 2. MANUAL CASH */}
+            <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  MANUAL CASH
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  Dual Provenance
+                </span>
+              </div>
+              <h4 className="text-xs font-bold text-white">
+                Cash Transactions Entered by User
+              </h4>
+              <div className="space-y-1.5 pt-1 text-[11px]">
+                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                  <span className="text-emerald-400 font-bold block">✓ Receipt Verified</span>
+                  <span className="text-slate-400">Supporting receipt evidence processed by Dhara.</span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                  <span className="text-amber-400 font-bold block">⚠ Self Reported</span>
+                  <span className="text-slate-400">No receipt evidence attached. Entered manually.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. SYNTHETIC DATA */}
+            <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  SYNTHETIC DATA
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                  DEMO · Synthetic
+                </span>
+              </div>
+              <h4 className="text-xs font-bold text-white">
+                Hackathon Evaluation Data
+              </h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Generated 180-day baseline data used for drought stress-testing and comparison demonstrations.
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
     </AppLayout>
   );
 }
+

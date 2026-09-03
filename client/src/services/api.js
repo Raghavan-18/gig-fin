@@ -7,9 +7,11 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 export async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
   const headers = {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
+    ...(!isFormData && { 'Content-Type': 'application/json' }),
     ...options.headers,
   };
 
@@ -21,14 +23,18 @@ export async function request(endpoint, options = {}) {
 
     if (!response.ok) {
       let errorDetail = `Request failed with status ${response.status}`;
+      let errorPayload = null;
       try {
-        const errorJson = await response.json();
-        errorDetail = errorJson.detail || errorJson.message || errorDetail;
+        errorPayload = await response.json();
+        errorDetail = errorPayload.detail || errorPayload.message || errorDetail;
       } catch {
         // use default
       }
-      const error = new Error(errorDetail);
+      const message = typeof errorDetail === 'string' ? errorDetail : (errorDetail.message || JSON.stringify(errorDetail));
+      const error = new Error(message);
       error.status = response.status;
+      error.payload = errorPayload;
+      error.detail = errorDetail;
       throw error;
     }
 

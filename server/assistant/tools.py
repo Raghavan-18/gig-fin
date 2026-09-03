@@ -170,6 +170,108 @@ def get_transaction_history(days: int = 7) -> dict:
                         "amount": e["amount"]} for e in rows[-40:]]}
 
 
+@tool("get_spending_breakdown", "Aggregates recent outflows by category to identify "
+      "biggest expenses and reduction opportunities.",
+      {"type": "object",
+       "properties": {"days": {"type": "integer", "description": "Analysis window in days"}},
+       "required": [], "additionalProperties": False})
+def get_spending_breakdown(days: int = 30) -> dict:
+    st = AppState.get()
+    lo = max(0, st.today - int(days) + 1)
+    rows = [e for e in st.ds.events if e["idx"] >= lo and e["kind"] == "OUTFLOW" and e["category"] != "SELF_TRANSFER"]
+    by_cat: dict[str, float] = {}
+    for e in rows:
+        c = e.get("category", "OTHER")
+        by_cat[c] = by_cat.get(c, 0.0) + float(e["amount"])
+    
+    total = sum(by_cat.values())
+    sorted_cats = sorted(by_cat.items(), key=lambda x: x[1], reverse=True)
+    top_categories = [{"category": c.title(), "amount": round(amt), "percentage": round((amt / total) * 100) if total else 0}
+                      for c, amt in sorted_cats]
+    top_name = top_categories[0]["category"] if top_categories else "None"
+    top_amt = top_categories[0]["amount"] if top_categories else 0
+    return {
+        "days": int(days),
+        "total_spending": round(total),
+        "categories": top_categories,
+        "top_expense_category": top_name,
+        "top_expense_amount": top_amt,
+    }
+
+
+@tool("get_income_analysis", "Analyzes earnings for a specified window (1 day for today, "
+      "7 days for week, 30 days for month) against baseline.",
+      {"type": "object",
+       "properties": {
+           "days": {"type": "integer", "description": "Days to analyze (1 for today, 7 for week, 30 for month)"},
+           "scope": {"type": "string", "description": "Scope label: today, week, last_7_days, month"}
+       },
+       "required": [], "additionalProperties": False})
+def get_income_analysis(days: int = 7, scope: str = "week") -> dict:
+    st = AppState.get()
+    days_val = max(1, int(days))
+    lo = max(0, st.today - days_val + 1)
+    recent_events = [e for e in st.ds.events if e["idx"] >= lo and e["kind"] == "INCOME" and e["category"] != "SELF_TRANSFER"]
+    recent_total = sum(float(e["amount"]) for e in recent_events)
+    
+    # 30-day weekly average baseline
+    lo30 = max(0, st.today - 30 + 1)
+    month_events = [e for e in st.ds.events if e["idx"] >= lo30 and e["kind"] == "INCOME" and e["category"] != "SELF_TRANSFER"]
+    avg_weekly = (sum(float(e["amount"]) for e in month_events) / 30.0) * 7.0 if month_events else recent_total
+
+    d0 = st.ds.drought["start_idx"]
+    in_drought = d0 <= st.today < d0 + st.ds.drought["days"]
+    drought_days_in_window = sum(1 for i in range(lo, st.today + 1) if d0 <= i < d0 + st.ds.drought["days"])
+
+    return {
+        "recent_income": round(recent_total),
+        "days": days_val,
+        "scope": scope,
+        "average_weekly_income": round(avg_weekly),
+        "is_drought": in_drought or drought_days_in_window > 0,
+        "drought_days": drought_days_in_window,
+        "payout_count": len(recent_events),
+        "status": "LOW" if recent_total < (avg_weekly * 0.75) else "NORMAL",
+        "has_data": len(recent_events) > 0,
+    }
+
+
+
+@tool("check_affordability", "Evaluates whether an upcoming commitment or expense "
+      "can be covered by existing reserves and projected income.",
+      {"type": "object",
+       "properties": {
+           "amount": {"type": "number", "description": "Expense amount in rupees"},
+           "commitment_name": {"type": "string", "description": "Name of the commitment, e.g. school fees, rent"},
+       },
+       "required": [], "additionalProperties": False})
+def check_affordability(amount: float | None = None, commitment_name: str = "commitment") -> dict:
+    st = AppState.get()
+    s = st.summaries["DHARA"]
+    p20_14 = st.p20_fortnight()
+    liquid_total = s["liquid_total"]
+    buffer_rupees = s["buffer"]
+    
+    obs = st.ds.upcoming_obligations(st.today, 30)
+    matched_ob = next((o for o in obs if commitment_name.lower() in o.get("name", "").lower() or commitment_name.lower() in o.get("category", "").lower()), None)
+    target_amount = float(amount) if amount is not None else (float(matched_ob["amount"]) if matched_ob else 6500.0)
+    target_name = commitment_name or (matched_ob["name"] if matched_ob else "commitment")
+
+    is_covered_by_buffer = buffer_rupees >= target_amount
+    is_covered_by_cashflow = (liquid_total + p20_14) >= (target_amount + s["essential_daily_burn"] * 14)
+
+    return {
+        "commitment_name": target_name,
+        "amount": round(target_amount),
+        "buffer_rupees": round(buffer_rupees),
+        "liquid_total": round(liquid_total),
+        "p20_projected_fortnight": round(p20_14),
+        "can_cover": is_covered_by_buffer or is_covered_by_cashflow,
+        "covered_by": "BUFFER" if is_covered_by_buffer else ("CASHFLOW" if is_covered_by_cashflow else "SHORTFALL"),
+    }
+
+
+
 def call(name: str, **kwargs):
     if name not in TOOL_REGISTRY:
         raise KeyError(f"unknown tool {name}")

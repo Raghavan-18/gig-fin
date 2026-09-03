@@ -122,6 +122,9 @@ class Engine:
         L.open_account(BUFFER, "ravi", "USER_BUCKET", "Buffer")
         L.open_account(RD_LOCKED, "ravi", "USER_BUCKET", "Recurring deposit (locked)")
         L.open_account(SINKING, "ravi", "SINKING_FUND", "Bike insurance fund")
+        L.open_account("cash_wallet", "ravi", "CASH_WALLET", "Cash wallet")
+        L.open_account("cash_expense", "ravi", "EXPENSE", "Manual cash expense")
+        L.open_account("cash_income", "ravi", "INCOME", "Manual cash income")
 
     # ------------------------------------------------------------ helpers
     def _credit_settlement(self, amount: float, key: str, on: str, meta: dict):
