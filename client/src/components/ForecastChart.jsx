@@ -1,16 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Card from './Card';
-import { TrendingUp, Info } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { DHARA_INCOME_FORECAST } from '../data/dharaData';
+import { dharaApi } from '../services/dharaApi';
 
 export default function ForecastChart({
-  forecast = DHARA_INCOME_FORECAST,
+  forecast: initialForecast,
   className = '',
 }) {
+  const [forecast, setForecast] = useState(initialForecast || DHARA_INCOME_FORECAST);
   const [activeTab, setActiveTab] = useState('projected'); // 'projected' or 'historical'
   const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [isLive, setIsLive] = useState(false);
 
-  const series = activeTab === 'projected' ? forecast.projected14d : forecast.historicalTrend;
+  useEffect(() => {
+    if (initialForecast) return;
+    let active = true;
+
+    dharaApi
+      .getForecast(14)
+      .then((data) => {
+        if (!active) return;
+        if (data && data.points && data.points.length > 0) {
+          const projected = data.points.map((p, idx) => ({
+            day: `+${idx + 1}d`,
+            date: p.date.substring(5),
+            p10: Math.round(p.p10),
+            p20: Math.round(p.p20),
+            p50: Math.round(p.p50),
+            p90: Math.round(p.p90),
+          }));
+
+          const historical = (data.history || []).slice(-14).map((h, idx) => ({
+            day: `Day ${idx - 14}`,
+            date: h.date.substring(5),
+            actual: Math.round(h.income),
+          }));
+
+          setForecast({
+            quantiles: {
+              p10: Math.round(data.points[0]?.p10 || 640),
+              p20: Math.round(data.points[0]?.p20 || 750),
+              p50: Math.round(data.points[0]?.p50 || 1050),
+              p90: Math.round(data.points[0]?.p90 || 1720),
+            },
+            projected14d: projected,
+            historicalTrend:
+              historical.length > 0
+                ? historical
+                : DHARA_INCOME_FORECAST.historicalTrend,
+          });
+          setIsLive(true);
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend forecast fetch notice (using baseline):', err.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialForecast]);
+
+  const series =
+    activeTab === 'projected'
+      ? forecast.projected14d || []
+      : forecast.historicalTrend || [];
   const maxVal = 2200;
 
   return (
@@ -23,6 +78,11 @@ export default function ForecastChart({
             <h3 className="font-bold text-base sm:text-lg text-white">
               Income Forecast
             </h3>
+            {isLive && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                GradientBoosting Quantile Model (Live)
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             Your expected income range based on recent cash-flow patterns.
@@ -57,7 +117,7 @@ export default function ForecastChart({
       </div>
 
       {/* Quantile Metrics Strip */}
-      {activeTab === 'projected' && (
+      {activeTab === 'projected' && forecast?.quantiles && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
           <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-850">
             <span className="text-[10px] uppercase font-bold text-rose-400 block">
@@ -151,19 +211,24 @@ export default function ForecastChart({
                     />
                     {/* p20 conservative floor */}
                     <div
-                      className="w-full rounded-t-sm bg-blue-500 absolute bottom-0 transition-all group-hover:bg-blue-400"
+                      className="w-full rounded-t-sm bg-blue-500/60 absolute bottom-0 transition-all group-hover:bg-blue-500/80"
                       style={{ height: `${p20Height}%` }}
+                    />
+                    {/* Marker Dot for p50 */}
+                    <div
+                      className="w-1.5 h-1.5 rounded-full bg-emerald-300 absolute z-10 -ml-[1px]"
+                      style={{ bottom: `calc(${p50Height}% - 3px)` }}
                     />
                   </div>
 
-                  <span className="text-[10px] text-slate-500 font-mono mt-2 truncate w-full text-center group-hover:text-white">
-                    {item.date.split(' ')[0]}
+                  <span className="text-[10px] text-slate-400 mt-2 truncate w-full text-center">
+                    {item.date}
                   </span>
                 </div>
               );
             })
           : series.map((item, idx) => {
-              const height = (item.actual / maxVal) * 100;
+              const height = ((item.actual || 0) / maxVal) * 100;
               const isHovered = hoveredPoint === idx;
 
               return (
@@ -174,43 +239,22 @@ export default function ForecastChart({
                   onMouseLeave={() => setHoveredPoint(null)}
                 >
                   {isHovered && (
-                    <div className="absolute -top-12 z-20 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 shadow-xl text-center pointer-events-none whitespace-nowrap text-xs font-mono font-bold text-emerald-400">
-                      {item.date}: ₹{item.actual}
+                    <div className="absolute -top-14 z-20 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 shadow-xl text-left pointer-events-none whitespace-nowrap text-xs">
+                      <div className="font-semibold text-white">{item.date}</div>
+                      <div className="text-emerald-400 font-mono">Actual: ₹{item.actual}</div>
                     </div>
                   )}
+
                   <div
-                    className="w-full max-w-[16px] rounded-t-md bg-gradient-to-t from-emerald-600 to-teal-400 transition-all group-hover:brightness-125"
+                    className="w-full max-w-[20px] rounded-t-sm bg-gradient-to-t from-blue-600 to-indigo-500 transition-all group-hover:brightness-125"
                     style={{ height: `${height}%` }}
                   />
-                  <span className="text-[10px] text-slate-500 font-mono mt-2 truncate w-full text-center">
-                    {item.date.split(' ')[0]}
+                  <span className="text-[10px] text-slate-400 mt-2 truncate w-full text-center">
+                    {item.date}
                   </span>
                 </div>
               );
             })}
-      </div>
-
-      {/* Legend & Explanation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 text-xs text-slate-400">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm bg-blue-500" />
-            <span>p20 (Safe Floor)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm bg-emerald-500/50" />
-            <span>p50 (Median Day)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm bg-purple-500/25" />
-            <span>p90 (Surge Potential)</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-          <Info className="w-3.5 h-3.5" />
-          <span>Derived from seeded synthetic timeseries</span>
-        </div>
       </div>
     </Card>
   );

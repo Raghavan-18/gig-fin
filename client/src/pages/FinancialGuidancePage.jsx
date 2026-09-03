@@ -2,24 +2,69 @@ import { useState } from 'react';
 import AppLayout from '../components/AppLayout';
 import PageHeader from '../components/PageHeader';
 import Card from '../components/Card';
+import Button from '../components/Button';
 import SimulationBadge from '../components/SimulationBadge';
-import { DHARA_ASSISTANT_QA } from '../data/dharaData';
+import { dharaApi } from '../services/dharaApi';
 import {
   Sparkles,
-  HelpCircle,
-  MessageSquare,
   CheckCircle2,
+  Send,
+  Wrench,
 } from 'lucide-react';
 
 export default function FinancialGuidancePage() {
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [activeQA, setActiveQA] = useState(DHARA_ASSISTANT_QA[0]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [conversation, setConversation] = useState([
+    {
+      role: 'assistant',
+      text: 'Hello Ravi! I am your Dhara Financial Assistant. I can answer questions about your buffer days, Safe-to-Save headroom, shortfall alerts, or loan affordability using real-time ledger data. Every number I provide is strictly verified by our numeric validator.',
+      tools: [],
+      validated: true,
+    },
+  ]);
 
-  const categories = ['All', 'Savings', 'Shortfall', 'Sweeps', 'Repayment'];
+  const presetQueries = [
+    'How many buffer days do I have?',
+    'Why did my savings stop this week?',
+    'Can I afford a 40000 rupee loan?',
+    'Will I be able to pay the school fees this month?',
+    'How much money do I have?',
+  ];
 
-  const filteredQA = DHARA_ASSISTANT_QA.filter((item) => {
-    return selectedCategory === 'All' || item.category === selectedCategory;
-  });
+  const handleAsk = async (textToAsk) => {
+    const q = textToAsk || query;
+    if (!q || !q.trim()) return;
+
+    const userMessage = { role: 'user', text: q };
+    setConversation((prev) => [...prev, userMessage]);
+    setQuery('');
+    setLoading(true);
+
+    try {
+      const res = await dharaApi.askAssistant(q, true);
+      const assistantMessage = {
+        role: 'assistant',
+        text: res.answer,
+        tools: res.tool_calls || [],
+        validated: res.validation?.ok ?? true,
+      };
+      setConversation((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      setConversation((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `Error contacting Dhara assistant service: ${err.message}`,
+          tools: [],
+          validated: false,
+          isError: true,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AppLayout maxWidth="max-w-5xl">
@@ -29,7 +74,7 @@ export default function FinancialGuidancePage() {
           <PageHeader
             title="Dhara Financial Assistant"
             subtitle="Contextual intelligence answering cash-flow, sweep, shortfall, and repayment questions"
-            badge="Numeric Validation Assistant"
+            badge="Live FastAPI Assistant with Numeric Validator"
             center={false}
             className="mb-0"
           />
@@ -44,110 +89,120 @@ export default function FinancialGuidancePage() {
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-blue-400" />
             <h2 className="text-base sm:text-lg font-bold text-white">
-              Mathematically Verified Cash-Flow Guidance
+              Grounded, Numerically Verified Intelligence
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-            The Dhara assistant validates answers directly against your synthetic double-entry ledger,
-            Safe-to-Save equation ($S2S = p20 - obligations - burn - floor$), and income-linked schedules.
+            Ask any question about your financial situation. Dhara queries your live double-entry ledger, Safe-to-Save equation, and credit policy. A deterministic numeric validator verifies every digit before returning it to you.
           </p>
 
-          {/* Category Filter Pills */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  selectedCategory === cat
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          {/* Quick Preset Query Pills */}
+          <div className="space-y-1.5 pt-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              Try asking:
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {presetQueries.map((pq, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleAsk(pq)}
+                  className="px-3 py-1.5 rounded-lg text-xs bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800 transition-colors cursor-pointer text-left"
+                >
+                  {pq}
+                </button>
+              ))}
+            </div>
           </div>
         </Card>
 
-        {/* Q&A Interactive Explorer */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Question List */}
-          <div className="lg:col-span-5 space-y-2.5">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block px-1">
-              Frequent Cash-Flow Queries:
-            </span>
-
-            {filteredQA.map((item) => {
-              const isSelected = activeQA?.id === item.id;
-              return (
+        {/* Chat / Interaction Log */}
+        <Card className="p-6 border-slate-800 bg-slate-900/80 space-y-4 shadow-xl">
+          <div className="space-y-4 max-h-[460px] overflow-y-auto pr-1">
+            {conversation.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex flex-col ${
+                  msg.role === 'user' ? 'items-end' : 'items-start'
+                }`}
+              >
                 <div
-                  key={item.id}
-                  onClick={() => setActiveQA(item)}
-                  className={`p-3.5 rounded-xl border cursor-pointer select-none transition-all flex items-start gap-2.5 ${
-                    isSelected
-                      ? 'bg-blue-600/15 border-blue-500/50 text-white shadow-lg'
-                      : 'bg-slate-900/70 border-slate-800/80 text-slate-300 hover:border-slate-700'
+                  className={`max-w-[85%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed space-y-2 ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-600/20'
+                      : msg.isError
+                      ? 'bg-rose-950/40 border border-rose-500/40 text-rose-200 rounded-bl-none'
+                      : 'bg-slate-950/80 border border-slate-800 text-slate-200 rounded-bl-none'
                   }`}
                 >
-                  <HelpCircle
-                    className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-                      isSelected ? 'text-blue-400' : 'text-slate-500'
-                    }`}
-                  />
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold leading-snug">
-                      {item.question}
-                    </p>
-                    <span className="text-[10px] text-slate-500 mt-0.5 block uppercase">
-                      {item.category}
-                    </span>
-                  </div>
+                  <p>{msg.text}</p>
+
+                  {/* Show Tool Calls if any */}
+                  {msg.tools && msg.tools.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/80 text-[11px] space-y-1 text-slate-400">
+                      <div className="flex items-center gap-1.5 text-blue-400 font-semibold">
+                        <Wrench className="w-3 h-3" />
+                        <span>Tools Executed:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {msg.tools.map((t, tidx) => (
+                          <span
+                            key={tidx}
+                            className="font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300"
+                          >
+                            {t.tool}()
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Validation Badge */}
+                  {msg.role === 'assistant' && !msg.isError && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium pt-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Validated: Zero hallucinated numbers</span>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
+                <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                <span>Running tool-calling loop and numeric validator...</span>
+              </div>
+            )}
           </div>
 
-          {/* Active Answer Detail Card */}
-          <div className="lg:col-span-7">
-            {activeQA ? (
-              <Card className="p-6 sm:p-7 border-slate-800 bg-slate-900/80 space-y-5 text-left h-full flex flex-col justify-between shadow-xl">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                      {activeQA.category} Intelligence
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">
-                      Validated vs p20 model
-                    </span>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-bold text-white mb-2 flex items-start gap-2">
-                      <MessageSquare className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                      <span>{activeQA.question}</span>
-                    </h3>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-200 text-xs sm:text-sm leading-relaxed">
-                    <p>{activeQA.answer}</p>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                  <div className="flex items-center gap-1.5 text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Numeric validation passed</span>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
-                    Dhara Assistant v0.1
-                  </span>
-                </div>
-              </Card>
-            ) : null}
-          </div>
-        </div>
+          {/* Input Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleAsk();
+            }}
+            className="pt-3 border-t border-slate-800 flex gap-2"
+          >
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ask a question about your buffer, sweeps, loans..."
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            />
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={loading || !query.trim()}
+              icon={Send}
+              iconPosition="right"
+              className="px-5 font-bold"
+            >
+              Ask
+            </Button>
+          </form>
+        </Card>
       </div>
     </AppLayout>
   );

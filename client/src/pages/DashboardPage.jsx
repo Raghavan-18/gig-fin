@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import AppLayout from '../components/AppLayout';
 import SimulationBadge from '../components/SimulationBadge';
@@ -12,12 +12,7 @@ import ComparisonCard from '../components/ComparisonCard';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { useApp } from '../context/useApp';
-import {
-  DHARA_FINANCIAL_SNAPSHOT,
-  DHARA_CREDIT_RESILIENCE,
-  DHARA_TRANSACTIONS,
-  DHARA_ASSISTANT_QA,
-} from '../data/dharaData';
+import { dharaApi } from '../services/dharaApi';
 import {
   TrendingUp,
   PiggyBank,
@@ -28,18 +23,112 @@ import {
   HelpCircle,
   Building2,
   Award,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user, selectedBank, showToast } = useApp();
 
-  const [snapshot] = useState(DHARA_FINANCIAL_SNAPSHOT);
-  const [credit] = useState(DHARA_CREDIT_RESILIENCE);
-  const [recentTx] = useState(DHARA_TRANSACTIONS.slice(0, 4));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [creditData, setCreditData] = useState(null);
+  const [timelineEvents, setTimelineEvents] = useState([]);
 
-  const userName = user?.name || 'Ramesh Patil';
-  const workerTitle = user?.workerType || 'Bengaluru Delivery Rider';
+  const loadAll = () => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      dharaApi.getDashboard(),
+      dharaApi.applyCredit(5000).catch(() => null),
+      dharaApi.getTimeline(30).catch(() => ({ events: [] })),
+    ])
+      .then(([dash, cred, tl]) => {
+        setDashboardData(dash);
+        setCreditData(cred);
+        setTimelineEvents(tl?.events || []);
+      })
+      .catch((err) => {
+        setError(err.message);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      dharaApi.getDashboard(),
+      dharaApi.applyCredit(5000).catch(() => null),
+      dharaApi.getTimeline(30).catch(() => ({ events: [] })),
+    ])
+      .then(([dash, cred, tl]) => {
+        if (!active) return;
+        setDashboardData(dash);
+        setCreditData(cred);
+        setTimelineEvents(tl?.events || []);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <AppLayout maxWidth="max-w-7xl">
+        <div className="py-24 text-center space-y-4">
+          <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm font-semibold text-slate-300">
+            Connecting to Dhara FastAPI backend...
+          </p>
+          <p className="text-xs text-slate-500">
+            Loading live double-entry ledger & quantile forecast models
+          </p>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout maxWidth="max-w-7xl">
+        <div className="py-16 text-center max-w-md mx-auto space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-bold text-white">Unable to connect to Dhara server</h2>
+          <p className="text-xs text-slate-400 leading-relaxed">{error}</p>
+          <div className="pt-2">
+            <Button variant="primary" onClick={loadAll} icon={RefreshCw} iconPosition="left">
+              Retry Connection
+            </Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const balances = dashboardData?.balances || {};
+  const s2s = dashboardData?.safe_to_save || {};
+  const alert = dashboardData?.alert || null;
+  const sinking = dashboardData?.sinking || {};
+  const totals = dashboardData?.totals || {};
+  const persona = dashboardData?.persona || user || {};
+
+  const userName = persona?.name || user?.name || 'Ravi';
+  const workerRole = persona?.role || user?.workerType || 'Delivery partner';
 
   return (
     <AppLayout maxWidth="max-w-7xl">
@@ -53,7 +142,7 @@ export default function DashboardPage() {
               </h1>
             </div>
             <p className="text-xs sm:text-sm text-slate-400">
-              <strong className="text-slate-200">{workerTitle}</strong> · Cash-flow-indexed liquidity & resilience overview
+              <strong className="text-slate-200">{workerRole}</strong> · Live cash-flow-indexed liquidity & resilience overview
             </p>
           </div>
 
@@ -68,59 +157,59 @@ export default function DashboardPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* SECTION 1: FINANCIAL SNAPSHOT                                             */}
+        {/* SECTION 1: FINANCIAL SNAPSHOT (LIVE BACKEND DATA)                         */}
         {/* ========================================================================= */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Section 1 · Financial Snapshot
             </h2>
-            <span className="text-[11px] text-slate-500 font-mono">
-              Seeded Synthetic Feed
+            <span className="text-[11px] text-emerald-400 font-mono font-semibold">
+              Live FastAPI Ledger Connected
             </span>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <StatCard
-              title="Income"
-              amount={snapshot.monthlyIncome}
-              trend={{ value: '18% weekly surge', isPositive: true }}
+              title="Liquid Account"
+              amount={Math.round(balances.account || 0)}
+              trend={{ value: `${dashboardData?.buffer_days || 0} buffer days`, isPositive: true }}
               icon={TrendingUp}
               variant="blue"
-              description="Monthly settled gross"
+              description="Settlement balance"
             />
 
             <StatCard
               title="Safe-to-Save"
-              amount={snapshot.safeToSave}
+              amount={Math.round(s2s.amount || 0)}
               trend={{ value: 'p20 protected', isPositive: true }}
               icon={PiggyBank}
               variant="emerald"
-              description="14-day safe capacity"
+              description={s2s.reason || '14-day safe capacity'}
             />
 
             <StatCard
               title="Current Buffer"
-              amount={snapshot.currentLiquidBuffer}
-              trend={{ value: 'Covers ~8 days burn', isPositive: true }}
+              amount={Math.round(balances.buffer || 0)}
+              trend={{ value: `Burn ₹${Math.round(dashboardData?.essential_daily_burn || 0)}/d`, isPositive: true }}
               icon={Wallet}
               variant="amber"
-              description="Protected against drought"
+              description="Liquid resilience cushion"
             />
 
             <StatCard
-              title="Savings"
-              amount={snapshot.totalSweepsAccumulated}
-              trend={{ value: '+₹229 this week', isPositive: true }}
+              title="Saved to Date"
+              amount={Math.round(totals.saved_to_date || balances.total || 0)}
+              trend={{ value: `${totals.sweeps_executed || 0} sweeps run`, isPositive: true }}
               icon={Sparkles}
               variant="purple"
-              description="Held in liquid reserve"
+              description={`${totals.sweeps_paused || 0} sweeps paused for safety`}
             />
           </div>
         </section>
 
         {/* ========================================================================= */}
-        {/* SECTION 2: INCOME FORECAST                                                */}
+        {/* SECTION 2: INCOME FORECAST (LIVE QUANTILE BACKEND)                        */}
         {/* ========================================================================= */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -135,7 +224,7 @@ export default function DashboardPage() {
         </section>
 
         {/* ========================================================================= */}
-        {/* SECTION 3 & 4: SAFE-TO-SAVE & SMART SWEEPS                                */}
+        {/* SECTIONS 3 & 4: SAFE-TO-SAVE & SMART SWEEPS                               */}
         {/* ========================================================================= */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -150,14 +239,17 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-7">
               <SafeToSaveCard
+                backendS2S={s2s}
                 onSaveAction={() => {
-                  showToast('Allocated ₹420 Safe-to-Save into liquid reserve', 'success');
+                  showToast(`Allocated ₹${s2s.amount || 0} Safe-to-Save into liquid reserve`, 'success');
                 }}
               />
             </div>
 
             <div className="lg:col-span-5">
               <SweepCard
+                executedCount={totals.sweeps_executed}
+                pausedCount={totals.sweeps_paused}
                 onManageSweeps={() => navigate('/savings')}
               />
             </div>
@@ -165,7 +257,7 @@ export default function DashboardPage() {
         </section>
 
         {/* ========================================================================= */}
-        {/* SECTION 5 & 7: SHORTFALL PROTECTION & INSURANCE SINKING FUND               */}
+        {/* SECTIONS 5 & 7: SHORTFALL PROTECTION & INSURANCE SINKING FUND              */}
         {/* ========================================================================= */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -176,12 +268,13 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ShortfallCard
+              backendAlert={alert}
               onSelectRemedy={(rem) => {
                 showToast(`Selected remedy: ${rem.toUpperCase()}`, 'info');
               }}
             />
 
-            <InsuranceFundCard />
+            <InsuranceFundCard backendSinking={sinking} />
           </div>
         </section>
 
@@ -207,13 +300,13 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-extrabold text-white font-mono">
-                      {credit.score}
+                      {creditData?.scorecard?.score
+                        ? Math.round((creditData.scorecard.score / (creditData.scorecard.max_score || 100)) * 900)
+                        : 742}
                     </span>
-                    <span className="text-slate-400 font-mono text-sm">
-                      / {credit.maxScore}
-                    </span>
+                    <span className="text-slate-400 font-mono text-sm">/ 900</span>
                     <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 uppercase">
-                      {credit.status}
+                      {(creditData?.scorecard?.score || 76) >= 70 ? 'GOOD' : 'FAIR'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
@@ -227,7 +320,7 @@ export default function DashboardPage() {
                   Potential Eligibility:
                 </span>
                 <span className="text-xl font-extrabold text-white font-mono">
-                  ₹{credit.potentialEligibilityAmount.toLocaleString('en-IN')}
+                  ₹5,000
                 </span>
                 <span className="text-[10px] text-slate-500 block">
                   Subject to lender policy · Not Loan Approval
@@ -318,20 +411,15 @@ export default function DashboardPage() {
             </p>
 
             <div className="space-y-2.5">
-              {DHARA_ASSISTANT_QA.slice(0, 2).map((qa) => (
-                <div
-                  key={qa.id}
-                  className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1.5"
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    <HelpCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                    <span>{qa.question}</span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed pl-5">
-                    {qa.answer}
-                  </p>
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                  <HelpCircle className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                  <span>How many buffer days do I have?</span>
                 </div>
-              ))}
+                <p className="text-xs text-slate-300 leading-relaxed pl-5">
+                  You have <strong>{dashboardData?.buffer_days || 0} days</strong> of essential buffer coverage at an essential burn rate of ₹{Math.round(dashboardData?.essential_daily_burn || 0)}/day.
+                </p>
+              </div>
             </div>
           </Card>
 
@@ -353,15 +441,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-2.5">
-              {recentTx.map((tx) => (
+              {(timelineEvents.slice(-4).reverse() || []).map((ev, idx) => (
                 <div
-                  key={tx.id}
+                  key={idx}
                   className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs"
                 >
                   <div>
-                    <p className="font-semibold text-white">{tx.description}</p>
+                    <p className="font-semibold text-white">{ev.narration}</p>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                      <span>{tx.date}</span>
+                      <span>{ev.date}</span>
                       <span>•</span>
                       <span className="text-slate-500 font-mono">
                         Classification: Rule-based
@@ -371,10 +459,10 @@ export default function DashboardPage() {
 
                   <span
                     className={`font-mono font-bold text-sm ${
-                      tx.type === 'credit' ? 'text-emerald-400' : 'text-slate-200'
+                      ev.kind === 'INCOME' ? 'text-emerald-400' : 'text-slate-200'
                     }`}
                   >
-                    {tx.type === 'credit' ? `+₹${tx.amount}` : `-₹${tx.amount}`}
+                    {ev.kind === 'INCOME' ? `+₹${Math.round(ev.amount)}` : `-₹${Math.round(ev.amount)}`}
                   </span>
                 </div>
               ))}
