@@ -24,20 +24,25 @@ MODEL_CACHE = "data/models.pkl"
 class AppState:
     _lock = threading.Lock()
     _instance: "AppState | None" = None
+    _instances: dict[str, "AppState"] = {}
+    _active_persona: str = "ravi"
 
-    def __init__(self, retrain: bool = False):
-        self.ds = load()
+    def __init__(self, persona_id: str = "ravi", retrain: bool = False):
+        self.persona_id = persona_id.lower()
+        self.ds = load(persona_id=self.persona_id)
         ds = self.ds
 
-        # Cross-conformal calibration costs 20 GBM fits (~40s). The seed data is
-        # deterministic, so the models are cached against a hash of it: a cold
-        # start trains, every subsequent start reloads in about a second. This
-        # matters because reset.sh gets run dozens of times.
+        # Model cache keyed by persona fingerprint
+        model_cache_path = (
+            MODEL_CACHE if self.persona_id == "ravi"
+            else f"data/models_{self.persona_id}.pkl"
+        )
+
         fingerprint = hashlib.sha256(ds.income.tobytes()).hexdigest()[:16]
         cached = None
-        if not retrain and os.path.exists(MODEL_CACHE):
+        if not retrain and os.path.exists(model_cache_path):
             try:
-                with open(MODEL_CACHE, "rb") as fh:
+                with open(model_cache_path, "rb") as fh:
                     blob = pickle.load(fh)
                 if blob.get("fingerprint") == fingerprint:
                     cached = blob
@@ -59,14 +64,17 @@ class AppState:
                 self.daily_fc, ds.income, ds.weekdays, ds.day_of_month, TRAIN_UPTO,
                 drought_idx=range(d0, d0 + ds.drought["days"]))
             self.trained = True
-            with open(MODEL_CACHE, "wb") as fh:
+            with open(model_cache_path, "wb") as fh:
                 pickle.dump({"fingerprint": fingerprint, "hf14": self.hf14,
                              "hf30": self.hf30, "daily_fc": self.daily_fc,
                              "calibration": self.calibration}, fh)
 
         # Collect any existing manual cash transactions so they persist across restarts
         existing_cash_txns = []
-        dhara_path = os.path.join(DB_DIR, "dhara.db")
+        dhara_path = (
+            os.path.join(DB_DIR, "dhara.db") if self.persona_id == "ravi"
+            else os.path.join(DB_DIR, f"dhara_{self.persona_id}.db")
+        )
         if os.path.exists(dhara_path):
             try:
                 temp_ledger = Ledger(dhara_path)
@@ -77,7 +85,10 @@ class AppState:
 
         self.engines: dict[str, Engine] = {}
         for policy in ("DHARA", "TRADITIONAL"):
-            path = os.path.join(DB_DIR, f"{policy.lower()}.db")
+            path = (
+                os.path.join(DB_DIR, f"{policy.lower()}.db") if self.persona_id == "ravi"
+                else os.path.join(DB_DIR, f"{policy.lower()}_{self.persona_id}.db")
+            )
             if os.path.exists(path):
                 os.remove(path)
             self.engines[policy] = Engine(ds, self.hf14, policy, path).run()
@@ -121,14 +132,28 @@ class AppState:
         return float(sum(o["amount"] for o in self.ds.obligations if o["category"] == "EMI"))
 
     @classmethod
-    def get(cls) -> "AppState":
+    def get(cls, persona_id: str | None = None) -> "AppState":
         with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls()
-        return cls._instance
+            pid = (persona_id or cls._active_persona).lower()
+            if pid not in cls._instances:
+                cls._instances[pid] = cls(persona_id=pid)
+            cls._instance = cls._instances[pid]
+            return cls._instances[pid]
 
     @classmethod
-    def reset(cls) -> "AppState":
+    def set_active_persona(cls, persona_id: str):
         with cls._lock:
+            pid = persona_id.lower()
+            cls._active_persona = pid
+            cls.get(pid)
+
+    @classmethod
+    def reset(cls, persona_id: str | None = None) -> "AppState":
+        with cls._lock:
+            if persona_id:
+                pid = persona_id.lower()
+                cls._instances.pop(pid, None)
+            else:
+                cls._instances.clear()
             cls._instance = None
-        return cls.get()
+        return cls.get(persona_id)

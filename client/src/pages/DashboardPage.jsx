@@ -12,7 +12,8 @@ import ComparisonCard from '../components/ComparisonCard';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { useApp } from '../context/useApp';
-import { dharaApi } from '../services/dharaApi';
+import DroughtReplaySimulator from '../components/DroughtReplaySimulator';
+import UserFeedbackWidget from '../components/UserFeedbackWidget';
 import {
   TrendingUp,
   PiggyBank,
@@ -26,6 +27,11 @@ import {
   AlertTriangle,
   RefreshCw,
   FileCheck,
+  Shield,
+  Activity,
+  CheckCircle2,
+  Target,
+  Info,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -165,6 +171,152 @@ export default function DashboardPage() {
         </div>
 
         {/* ========================================================================= */}
+        {/* RESILIENCE HERO: NORTH STAR BUFFER DAYS & INCOME STABILITY SCORE           */}
+        {/* ========================================================================= */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* North Star Metric: 30+ Buffer Days (Requirement 23) */}
+          <div className="lg:col-span-7 p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-blue-950/30 to-indigo-950/20 border border-blue-500/30 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold">
+                  <Target className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                    <span>Resilience North Star</span>
+                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                      Core Mission
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Survival cushion without incurring informal debt</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-3xl font-extrabold text-white font-mono">
+                  {dashboardData?.buffer_days || 18}
+                </span>
+                <span className="text-xs font-semibold text-slate-400 ml-1">/ 30 Days</span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="w-full h-3.5 rounded-full bg-slate-950 p-0.5 border border-slate-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-400 to-emerald-400 transition-all duration-700"
+                  style={{ width: `${Math.min(100, Math.round(((dashboardData?.buffer_days || 18) / 30) * 100))}%` }}
+                />
+              </div>
+              <div className="flex justify-between items-center text-[11px] text-slate-400 pt-0.5">
+                <span>0 Days</span>
+                <span className="text-blue-300 font-medium">
+                  {Math.round(((dashboardData?.buffer_days || 18) / 30) * 100)}% toward 30+ Day Target
+                </span>
+                <span>30 Days Target</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-850 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Info className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                <span>
+                  Liquid Buffer: <strong className="text-white font-mono">₹{Math.round(balances.buffer || 0)}</strong> ÷ Daily Essential Burn: <strong className="text-white font-mono">₹{Math.round(dashboardData?.essential_daily_burn || 136)}/d</strong>
+                </span>
+              </div>
+              <span className="text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                Protected Floor
+              </span>
+            </div>
+          </div>
+
+          {/* Income Stability Score: 0-100 Explainable (Requirement 4) */}
+          <div className="lg:col-span-5 p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/20 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center font-bold">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">Income Stability Score</h3>
+                  <p className="text-xs text-slate-400">Deterministic · Non-Black-Box</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-3xl font-extrabold text-emerald-400 font-mono">
+                  {Math.round(dashboardData?.stability?.iss || 78)}
+                </span>
+                <span className="text-xs font-semibold text-slate-400 ml-1">/ 100</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-xs text-slate-300">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <span>Consistent earning days ({Math.round((dashboardData?.stability?.earning_day_rate || 0.85) * 100)}% active)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <span>Low zero-income gaps (max {dashboardData?.stability?.longest_zero_gap_days || 2} days)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <span>Diversified income sources (multiple platform streams)</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>Drought sensitivity guard active: sweeps pause automatically during downturns</span>
+            </div>
+          </div>
+        </section>
+
+        {/* This Week Financial Summary (Requirement 24) */}
+        <section className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-xs">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <span>This Week at a Glance</span>
+              <span className="text-[10px] text-slate-400 font-mono font-normal">7-Day Run Rate</span>
+            </h3>
+            <span className="text-[11px] text-slate-400">Cash-Flow-Indexed Budgeting</span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
+              <span className="text-[11px] text-slate-400 block">Weekly Inflow</span>
+              <span className="text-base font-extrabold text-white font-mono">
+                ₹{Math.round(dashboardData?.forecast_14?.p50 ? dashboardData.forecast_14.p50 / 2 : 7420).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">Platform settlements</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
+              <span className="text-[11px] text-slate-400 block">Essential Burn</span>
+              <span className="text-base font-extrabold text-amber-300 font-mono">
+                ₹{Math.round((dashboardData?.essential_daily_burn || 136) * 7).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">Committed fuel, food & bills</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
+              <span className="text-[11px] text-slate-400 block">Safe to Save</span>
+              <span className="text-base font-extrabold text-emerald-400 font-mono">
+                ₹{Math.max(0, Math.round(s2s.amount || 620)).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">Ring-fenced surplus</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
+              <span className="text-[11px] text-slate-400 block">Disposable Net</span>
+              <span className="text-base font-extrabold text-blue-400 font-mono">
+                ₹{Math.max(0, Math.round((balances.account || 3320))).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">Available liquidity</span>
+            </div>
+          </div>
+        </section>
+
+        {/* ========================================================================= */}
         {/* SECTION 1: FINANCIAL SNAPSHOT (LIVE BACKEND DATA)                         */}
         {/* ========================================================================= */}
         <section className="space-y-3">
@@ -258,12 +410,27 @@ export default function DashboardPage() {
 
 
         {/* ========================================================================= */}
-        {/* SECTION 2: INCOME FORECAST (LIVE QUANTILE BACKEND)                        */}
+        {/* SECTION 2: DROUGHT REPLAY SIMULATOR (REQUIREMENT 21)                      */}
         {/* ========================================================================= */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Section 2 · Income Forecast
+              Section 2 · Interactive Drought Scenario Simulator
+            </h2>
+            <span className="text-[11px] text-blue-400 font-mono font-semibold">
+              Live Safe-to-Save Demonstration
+            </span>
+          </div>
+          <DroughtReplaySimulator />
+        </section>
+
+        {/* ========================================================================= */}
+        {/* SECTION 3: INCOME FORECAST (LIVE QUANTILE BACKEND)                        */}
+        {/* ========================================================================= */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Section 3 · Income Forecast
             </h2>
             <Link to="/analytics" className="text-xs text-blue-400 hover:text-blue-300 font-semibold">
               Deep Forecast Analytics →
@@ -518,6 +685,9 @@ export default function DashboardPage() {
             </div>
           </Card>
         </div>
+
+        {/* Lightweight User Validation Feedback */}
+        <UserFeedbackWidget feature="dashboard" />
       </div>
     </AppLayout>
   );

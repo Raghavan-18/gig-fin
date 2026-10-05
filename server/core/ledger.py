@@ -103,6 +103,15 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
     verification_reason TEXT,
     created_at          REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    useful      INTEGER NOT NULL,
+    comment     TEXT,
+    feature     TEXT
+);
 """
 
 
@@ -527,6 +536,46 @@ class Ledger:
             "receipt_verified_count": counts.get("receipt_verified", 0),
             "self_reported_count": counts.get("self_reported", 0),
         }
+
+    @_locked
+    def save_feedback(self, user_id: str, useful: bool, comment: str = "", feature: str = "general") -> dict:
+        """Store lightweight user feedback in the local database."""
+        fb_id = f"fb_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        with self._tx():
+            self.conn.execute(
+                """INSERT INTO user_feedback (feedback_id, user_id, created_at, useful, comment, feature)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (fb_id, user_id, now, 1 if useful else 0, comment, feature),
+            )
+        return {
+            "feedback_id": fb_id,
+            "user_id": user_id,
+            "useful": useful,
+            "comment": comment,
+            "feature": feature,
+            "created_at": now,
+        }
+
+    @_locked
+    def get_feedback(self, limit: int = 50) -> list[dict]:
+        """Retrieve recent feedback entries."""
+        rows = self.conn.execute(
+            """SELECT feedback_id, user_id, created_at, useful, comment, feature
+               FROM user_feedback ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "feedback_id": r["feedback_id"],
+                "user_id": r["user_id"],
+                "created_at": r["created_at"],
+                "useful": bool(r["useful"]),
+                "comment": r["comment"] or "",
+                "feature": r["feature"] or "general",
+            }
+            for r in rows
+        ]
 
     # -------------------------------------------------------------- misc
 

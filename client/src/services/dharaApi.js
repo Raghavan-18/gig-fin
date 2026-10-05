@@ -126,10 +126,22 @@ export const dharaApi = {
     return request('/api/transactions/evidence');
   },
 
-  /** Get secure receipt URL */
-  getReceiptUrl(identifier) {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-    return `${baseUrl}/api/transactions/${identifier}/receipt`;
+  /** Submit user validation feedback */
+  submitFeedback({ userId = 'ravi', useful = true, comment = '', feature = 'general' }) {
+    return request('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        useful,
+        comment,
+        feature,
+      }),
+    });
+  },
+
+  /** Get user validation feedback */
+  getFeedback(limit = 50) {
+    return request(`/api/feedback?limit=${limit}`);
   },
 };
 

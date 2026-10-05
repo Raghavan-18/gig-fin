@@ -178,8 +178,22 @@ def _rupees(v) -> str:
     return f"Rs {v:,.0f}"
 
 
+def _detect_lang(q: str, param_lang: str = "en") -> str:
+    pl = (param_lang or "en").lower()
+    if pl in ("ta", "tamil"):
+        return "ta"
+    if pl in ("hi", "hindi"):
+        return "hi"
+    if re.search(r"[\u0B80-\u0BFF]", q) or re.search(r"\b(vanakkam|panam|kaasu|semippu|kadan|selavu|eppadi)\b", q.lower()):
+        return "ta"
+    if re.search(r"[\u0900-\u097F]", q) or re.search(r"\b(namaste|bachat|kamai|kharcha|udhar|paise|kitna|kaise)\b", q.lower()):
+        return "hi"
+    return "en"
+
+
 def _deterministic_answer(question: str, precalled: list[dict] | None = None,
-                           history: list[dict] | None = None) -> Turn:
+                           history: list[dict] | None = None, lang: str = "en") -> Turn:
+    target_lang = _detect_lang(question, lang)
     intent = _classify(question, history)
     scope = _detect_scope(question)
     called: list[dict] = list(precalled or [])
@@ -472,6 +486,96 @@ def _deterministic_answer(question: str, precalled: list[dict] | None = None,
                       f"{_rupees(b['insurance_fund'])} set aside for your bike insurance. "
                       f"That buffer is {bd['buffer_days']} days of expenses.")
 
+    # --- Vernacular Localization (Pillar 4 - Requirement 16) ---
+    if target_lang == "ta":
+        if intent == "GREETING_CASUAL":
+            if re.search(r"(thank|thanks|shukriya)", ql):
+                answer = "மிக்க மகிழ்ச்சி! உங்கள் ரொக்க ஓட்டம் மற்றும் இடையக சேமிப்பை நிர்வகிக்க நான் எப்போதும் உங்களுக்கு உதவ தயாராக இருக்கிறேன். பாதுகாப்பாக இருங்கள்."
+            else:
+                answer = "வணக்கம்! நான் தாரா (Dhara), கிக் பணியாளர்களுக்கான உங்கள் நிதித் தோழன். நேரடி இருப்பு, சேமிப்பு வரம்பு, அல்லது நிதித் திட்டமிடலைச் சரிபார்க்க நான் உதவ முடியும்."
+        elif intent == "FINANCIAL_GUIDANCE":
+            answer = "மாறுபடும் வருமானத்தில் சேமிக்க மூன்று முக்கிய வழிகள்: அதிக வருமானம் கிடைக்கும் நாட்களில் ஒரு சதவீதத்தை ஒதுக்குங்கள், தினசரி அத்தியாவசிய செலவு நிதியைப் பாதுகாக்கவும், மந்தமான காலங்களில் சேமிப்பைத் தற்காலிகமாக நிறுத்தவும்."
+        elif intent == "GENERAL_FINANCIAL":
+            answer = "அவசரகால நிதி என்பது எதிர்பாராத செலவுகளான மருத்துவ அவசரங்கள் அல்லது வாகனம் பழுதுபார்க்க ஒதுக்கி வைக்கப்படும் திரவ நிதியாகும்."
+        elif intent == "DHARA_FEATURE":
+            answer = "தாரா (Dhara) என்பது கிக் மற்றும் அமைப்புசாரா தொழிலாளர்களின் உண்மையான பணப் புழக்கத்திற்கு ஏற்ப சேமிப்பு மற்றும் கடனை மாற்றியமைக்கும் ஒரு நிதி தளமாகும்."
+        elif intent == "SAFE_TO_SAVE":
+            for call in called:
+                if call["name"] == "get_safe_to_save":
+                    s_res = call["result"]
+                    if s_res.get("paused"):
+                        answer = f"அடுத்த இரண்டு வாரங்களில் எதிர்பார்க்கப்படும் வருமானம் குறைவாக இருப்பதாலும், {_rupees(s_res['committed'])} பில்கள் மற்றும் {_rupees(s_res['burn'])} அவசிய செலவுகள் உள்ளதாலும் தானியங்கி சேமிப்பு தற்காலிகமாக நிறுத்தப்பட்டுள்ளது. உங்கள் பணம் அத்தியாவசிய தேவைகளுக்காக பாதுகாப்பாக இருக்கும்."
+                    else:
+                        answer = f"அவசிய செலவுகள் {_rupees(s_res['burn'])} மற்றும் பில்கள் {_rupees(s_res['committed'])} ஒதுக்கிய பிறகு, நீங்கள் இப்போது பாதுகாப்பாக {_rupees(s_res['amount'])} சேமிக்கலாம்."
+                    break
+        elif intent == "PERSONAL_BALANCE":
+            b_res = next((c["result"] for c in called if c["name"] == "get_balance"), None)
+            bd_res = next((c["result"] for c in called if c["name"] == "get_buffer_days"), None)
+            if b_res and bd_res:
+                if "buffer" in ql:
+                    answer = f"உங்கள் இடையக நிதியில் (buffer) {_rupees(bd_res['buffer_rupees'])} உள்ளது. இது {bd_res['buffer_days']} நாட்களுக்கான அத்தியாவசிய செலவுகளுக்கு போதுமானது. இலக்கு {bd_res['target_buffer_days']} நாட்கள் ஆகும்."
+                else:
+                    answer = f"உங்கள் வங்கிக் கணக்கில் {_rupees(b_res['bank_account'])}, இடையக நிதியில் {_rupees(b_res['buffer'])}, மற்றும் காப்பீட்டு நிதியில் {_rupees(b_res['insurance_fund'])} உள்ளது. இந்த இடையக நிதி {bd_res['buffer_days']} நாட்களுக்கு போதுமானது."
+        elif intent == "INCOME":
+            for call in called:
+                if call["name"] == "get_income_summary":
+                    inc_res = call["result"]
+                    answer = f"கடந்த {inc_res['days']} நாட்களில் உங்கள் மொத்த வருமானம் {_rupees(inc_res['total_income'])} ஆகும்."
+                    break
+        elif intent == "SHORTFALL":
+            for call in called:
+                if call["name"] == "get_shortfall_alert":
+                    sf_res = call["result"]
+                    if sf_res and sf_res.get("shortfall"):
+                        answer = f"உங்கள் கட்டணம் இன்னும் {sf_res['due_in_days']} நாட்களில் செலுத்தப்பட வேண்டும். சுமார் {_rupees(sf_res['shortfall'])} பற்றாக்குறை ஏற்படும் அபாயம் உள்ளது. இடையக நிதியைப் பயன்படுத்துதல் போன்ற பாதுகாப்பான வழிகளைப் பயன்படுத்தலாம்."
+                    else:
+                        answer = "தற்போது எந்த பற்றாக்குறை அபாயமும் இல்லை. உங்கள் நிலைமை சீராக உள்ளது."
+                    break
+    elif target_lang == "hi":
+        if intent == "GREETING_CASUAL":
+            if re.search(r"(thank|thanks|shukriya)", ql):
+                answer = "आपका बहुत धन्यवाद! मैं आपके नकदी प्रवाह और बचत बफर को प्रबंधित करने में हमेशा मदद के लिए तैयार हूँ। सुरक्षित रहें।"
+            else:
+                answer = "नमस्ते! मैं धारा (Dhara) हूँ, गिग श्रमिकों के लिए आपका वित्तीय साथी। मैं आपके बैंक बैलेंस, सेफ-टू-सेव सीमा, या ऋण क्षमता की जांच में मदद कर सकता हूँ।"
+        elif intent == "FINANCIAL_GUIDANCE":
+            answer = "अनियमित आय में वित्तीय स्थिरता के लिए: एक आपातकालीन बफर बनाए रखें, प्रत्येक भुगतान का एक प्रतिशत बचाएं, और कम आय वाले दिनों में खर्च नियंत्रित रखें।"
+        elif intent == "GENERAL_FINANCIAL":
+            answer = "आपातकालीन फंड (Emergency Fund) वह बचत है जो अप्रत्याशित खर्चों जैसे चिकित्सा या वाहन मरम्मत के समय काम आती है।"
+        elif intent == "DHARA_FEATURE":
+            answer = "धारा (Dhara) एक वित्तीय ढांचा है जो गिग श्रमिकों के वास्तविक नकदी प्रवाह के अनुसार बचत और ऋण को लचीला बनाता है।"
+        elif intent == "SAFE_TO_SAVE":
+            for call in called:
+                if call["name"] == "get_safe_to_save":
+                    s_res = call["result"]
+                    if s_res.get("paused"):
+                        answer = f"अगले दो हफ्तों में संभावित कम कमाई और {_rupees(s_res['committed'])} के बिल तथा {_rupees(s_res['burn'])} के आवश्यक खर्चों को देखते हुए आपकी बचत रोक दी गई है ताकि जरूरी खर्च सुरक्षित रहें।"
+                    else:
+                        answer = f"आवश्यक खर्च {_rupees(s_res['burn'])} और बिल {_rupees(s_res['committed'])} अलग रखने के बाद, आप अभी सुरक्षित रूप से {_rupees(s_res['amount'])} बचा सकते हैं।"
+                    break
+        elif intent == "PERSONAL_BALANCE":
+            b_res = next((c["result"] for c in called if c["name"] == "get_balance"), None)
+            bd_res = next((c["result"] for c in called if c["name"] == "get_buffer_days"), None)
+            if b_res and bd_res:
+                if "buffer" in ql:
+                    answer = f"आपके बफर में {_rupees(bd_res['buffer_rupees'])} हैं। यह {bd_res['buffer_days']} दिनों के खर्च को संभाल सकता है। लक्ष्य {bd_res['target_buffer_days']} दिनों का है।"
+                else:
+                    answer = f"आपके बैंक खाते में {_rupees(b_res['bank_account'])}, बफर में {_rupees(b_res['buffer'])}, और बीमा फंड में {_rupees(b_res['insurance_fund'])} हैं। यह बफर {bd_res['buffer_days']} दिनों के लिए पर्याप्त है।"
+        elif intent == "INCOME":
+            for call in called:
+                if call["name"] == "get_income_summary":
+                    inc_res = call["result"]
+                    answer = f"पिछले {inc_res['days']} दिनों में आपकी कुल कमाई {_rupees(inc_res['total_income'])} रही है।"
+                    break
+        elif intent == "SHORTFALL":
+            for call in called:
+                if call["name"] == "get_shortfall_alert":
+                    sf_res = call["result"]
+                    if sf_res and sf_res.get("shortfall"):
+                        answer = f"आपका भुगतान अगले {sf_res['due_in_days']} दिनों में देय है। लगभग {_rupees(sf_res['shortfall'])} की कमी हो सकती है। सुरक्षित विकल्पों में बफर का उपयोग शामिल है।"
+                    else:
+                        answer = "फिलहाल किसी कमी का कोई जोखिम नहीं है। आपकी स्थिति सामान्य है।"
+                    break
+
     results = [c["result"] for c in called]
     v = validator_mod.validate(answer, results)
     if not v.ok:
@@ -482,12 +586,12 @@ def _deterministic_answer(question: str, precalled: list[dict] | None = None,
                 tool_calls=called, validation=v.to_dict(), sources=[c["name"] for c in called])
 
 
-def ask(question: str, history: list[dict] | None = None, force_deterministic: bool = False) -> Turn:
+def ask(question: str, history: list[dict] | None = None, force_deterministic: bool = False, lang: str = "en") -> Turn:
     if force_deterministic or not has_api_key():
-        return _deterministic_answer(question, history=history)
+        return _deterministic_answer(question, history=history, lang=lang)
     try:
         return _run_claude(question)
     except Exception as e:
-        t = _deterministic_answer(question, history=history)
+        t = _deterministic_answer(question, history=history, lang=lang)
         t.source = f"deterministic (claude unavailable: {type(e).__name__})"
         return t

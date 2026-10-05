@@ -8,8 +8,10 @@ segment.
 """
 from __future__ import annotations
 
-ALERT_HORIZON = 14
-MIN_GAP = 200          # don't alert on trivial gaps -- precision over recall
+from core.config import (
+    SHORTFALL_ALERT_HORIZON as ALERT_HORIZON,
+    MIN_SHORTFALL_GAP as MIN_GAP,
+)
 
 
 def detect(ds, horizon_forecaster, idx: int, buffer_balance: float,

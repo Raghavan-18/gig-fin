@@ -20,17 +20,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-PAYOUT_SLICE_PCT = 0.03
-# A same-day guard. Safe-to-Save is backward-looking: one washout day barely
-# moves a 7-day mean, so on the FIRST day of a drought S2S can still be positive
-# and a sweep would fire. But the sweep decision is made at end of day, when
-# today's earnings are already known -- so if today came in far below his
-# personal median, we simply don't take anything, whatever the forecast says.
-# Fails in the safe direction (ARCHITECTURE §9.3).
-DROUGHT_DAY_RATIO = 0.50
-SURGE_THRESHOLD = 1.20
-SURGE_SKIM_PCT = 0.25
-ROUND_UP_TO = 10
+from core.config import (
+    PAYOUT_SLICE_PCT,
+    DROUGHT_RATIO as DROUGHT_DAY_RATIO,
+    SURGE_THRESHOLD,
+    SURGE_SKIM_RATE as SURGE_SKIM_PCT,
+    ROUND_UP_TO,
+)
 
 
 @dataclass

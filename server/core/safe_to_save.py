@@ -24,14 +24,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-HORIZON_DAYS = 14
-DEFAULT_RESERVE_FLOOR = 1000        # rupees
-
-# Realised earnings over the last DROUGHT_LOOKBACK days, as a share of the
-# personal 30-day median, below which we call it a drought. Mirrors the sweep
-# engine's same-day guard (core.sweeps.DROUGHT_DAY_RATIO).
-DROUGHT_RATIO = 0.50
-DROUGHT_LOOKBACK = 3
+from core.config import (
+    SAFE_TO_SAVE_HORIZON as HORIZON_DAYS,
+    DEFAULT_RESERVE_FLOOR,
+    DROUGHT_RATIO,
+    DROUGHT_LOOKBACK,
+)
 
 
 @dataclass

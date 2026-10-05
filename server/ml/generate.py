@@ -118,8 +118,7 @@ def _gross_for_day(idx: int, d: date, rng: random.Random,
         "demand": round(demand, 2), "raining": raining, "drought": in_drought,
     }
 
-
-def generate() -> dict:
+def generate_ravi() -> dict:
     rng = random.Random(SEED)
     events: list[Event] = []
     raining = False
@@ -143,7 +142,7 @@ def generate() -> dict:
         elif drought_end <= idx < drought_end + CLEAR_AFTER_DROUGHT:
             raining = False
             log_demand = max(log_demand, 0.15)      # demand rebounds with the weather
-            demand = math.exp(log_demand)
+        demand = math.exp(log_demand)
         gross, factors = _gross_for_day(idx, d, rng, raining, demand)
 
         # --- income: split the day's gross across platforms -------------
@@ -249,14 +248,207 @@ def generate() -> dict:
     }
 
 
-def write(path: str | Path = "data/seed.json") -> dict:
-    payload = generate()
+def generate_sunita() -> dict:
+    """Sunita: Domestic worker, 41, Jaipur. Works in 5 households."""
+    rng = random.Random(SEED + 101)
+    events: list[Event] = []
+
+    for idx in range(N_DAYS):
+        d = START + timedelta(days=idx)
+        in_drought = DROUGHT_START_IDX <= idx < DROUGHT_START_IDX + DROUGHT_LEN
+
+        # Inflows: 5 households (mix of monthly bank transfer and weekly cash)
+        if not in_drought:
+            # House 1: Mrs. Sharma (₹4,500/mo, lands 1st or 2nd)
+            if d.day == 1:
+                events.append(Event(idx, d.isoformat(), "INCOME", 4500, "Mrs. Sharma (Wages)",
+                                   "UPI/SHARMA/DOMESTIC WAGES", "INFORMAL_INCOME", "BANK"))
+            # House 2: Mr. Gupta (₹1,000/week on Sundays)
+            if d.weekday() == 6:
+                events.append(Event(idx, d.isoformat(), "INCOME", 1000, "Mr. Gupta (Sunday Wages)",
+                                   "CASH ENTRY (Gupta residence)", "CASH_INCOME", "CASH"))
+            # House 3: Verma Residence (₹4,200/mo on 5th)
+            if d.day == 5:
+                events.append(Event(idx, d.isoformat(), "INCOME", 4200, "Verma Family (Cooking)",
+                                   "IMPS/VERMA/MONTHLY", "INFORMAL_INCOME", "BANK"))
+            # House 4: Mehta Family (₹3,500/mo on 7th)
+            if d.day == 7:
+                events.append(Event(idx, d.isoformat(), "INCOME", 3500, "Mehta House (Housekeeping)",
+                                   "UPI/MEHTA/DOMESTIC", "INFORMAL_INCOME", "BANK"))
+            # Occasional cash cleaning/events (Friday/Saturday)
+            if d.weekday() in (4, 5) and rng.random() < 0.40:
+                cash_amt = rng.choice([300, 450, 600])
+                events.append(Event(idx, d.isoformat(), "INCOME", cash_amt, "Deep Cleaning (Cash)",
+                                   "CASH WAGES (Extra hours)", "CASH_INCOME", "CASH"))
+
+        # Outflows
+        # Daily food and essentials
+        food = rng.randint(90, 160)
+        events.append(Event(idx, d.isoformat(), "OUTFLOW", food, "Ration & Groceries",
+                           "UPI/KIRANA STORE", "FOOD"))
+
+        # Daily commute
+        if not in_drought:
+            bus = rng.randint(30, 60)
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", bus, "Bus / Auto",
+                               "CASH/CITY BUS", "TRANSPORT"))
+
+        # Dated obligations
+        if d.day == 1:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 4200, "Room Rent",
+                               "CASH/LANDLORD/RENT", "RENT"))
+        if d.day == 10:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 1800, "Child School Fee",
+                               "UPI/SARASWATI VIDYALAYA", "EDUCATION"))
+        if d.day == 15:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 2000, "Neighbourhood Chit Fund",
+                               "CASH/MAHILA SAMITI CHIT", "SAVINGS_CHIT"))
+        if d.day == 20:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 299, "Mobile Recharge",
+                               "UPI/JIO PREPAID", "UTILITY"))
+
+        # Shock
+        if idx == 115:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 1600, "Doctor & Prescriptions",
+                               "UPI/GOVT HOSPITAL DISPENSARY", "MEDICAL"))
+
+    events.sort(key=lambda e: (e.idx, 0 if e.kind == "INCOME" else 1))
+
+    return {
+        "persona_id": "sunita",
+        "generated_for": TODAY.isoformat(),
+        "start": START.isoformat(),
+        "n_days": N_DAYS,
+        "drought": {
+            "start_idx": DROUGHT_START_IDX,
+            "start": (START + timedelta(days=DROUGHT_START_IDX)).isoformat(),
+            "days": DROUGHT_LEN,
+        },
+        "obligations": [
+            {"label": "Room Rent", "amount": 4200, "day_of_month": 1, "category": "RENT"},
+            {"label": "Child School Fee", "amount": 1800, "day_of_month": 10, "category": "EDUCATION"},
+            {"label": "Chit Fund", "amount": 2000, "day_of_month": 15, "category": "SAVINGS_CHIT"},
+            {"label": "Mobile Recharge", "amount": 299, "day_of_month": 20, "category": "UTILITY"},
+        ],
+        "sinking_targets": [
+            {"label": "Health & Emergency Sinking Fund", "amount": 3600,
+             "due": INSURANCE_DUE.isoformat(), "category": "INSURANCE"},
+        ],
+        "bounce_fee": 350,
+        "opening_balance": 1400,
+        "events": [asdict(e) for e in events],
+    }
+
+
+def generate_imran() -> dict:
+    """Imran: Cab driver, 34, Pune. Grosses ~₹45k, nets ~₹18k."""
+    rng = random.Random(SEED + 202)
+    events: list[Event] = []
+
+    for idx in range(N_DAYS):
+        d = START + timedelta(days=idx)
+        in_drought = DROUGHT_START_IDX <= idx < DROUGHT_START_IDX + DROUGHT_LEN
+
+        # Platform gross income
+        if in_drought:
+            gross = 0
+        else:
+            w_mult = 1.35 if d.weekday() in (4, 5, 6) else 0.90
+            gross = int(round(1550 * w_mult * rng.uniform(0.75, 1.35)))
+
+        if gross > 0:
+            cabs_share = int(round(gross * 0.65))
+            events.append(Event(idx, d.isoformat(), "INCOME", cabs_share, "CityCabs Partner Payout",
+                               f"NEFT/CITYCABS/SETTLE/{rng.randint(1000, 9999)}", "PLATFORM_EARNINGS", "PLATFORM"))
+            quick_share = gross - cabs_share
+            if quick_share > 0:
+                events.append(Event(idx, d.isoformat(), "INCOME", quick_share, "QuickRide Driver Settlement",
+                                   f"UPI/QUICKRIDE/PAY/{rng.randint(1000, 9999)}", "PLATFORM_EARNINGS", "PLATFORM"))
+
+            # Outflows on active driving days
+            cng = rng.randint(450, 680)
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", cng, "CNG Fuel",
+                               "UPI/MAHANAGAR GAS PUMP", "FUEL"))
+            food = rng.randint(140, 240)
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", food, "Tea & Meals on Shift",
+                               "UPI/DHABA & CHAI", "FOOD"))
+
+        # Monthly dated obligations
+        if d.day == 7:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 8200, "Commercial Car Loan EMI",
+                               "ACH-D/CAB VEHICLE FINANCE", "EMI"))
+        if d.day == 10:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 3500, "Family Remittance",
+                               "IMPS/FAMILY/HOME SUPPORT", "FAMILY"))
+        if d.day == 15:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 1200, "Fastag & Highway Tolls",
+                               "UPI/NHAI FASTAG RECHARGE", "TRANSPORT"))
+        if d.day == 22:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 499, "Unlimited 5G Data Pack",
+                               "UPI/TELECOM AIRTEL", "UTILITY"))
+
+        # Shock
+        if idx == 88:
+            events.append(Event(idx, d.isoformat(), "OUTFLOW", 4800, "Brake pad & Tyre replacement",
+                               "UPI/PUNE MOTOR REPAIR", "SHOCK"))
+
+    events.sort(key=lambda e: (e.idx, 0 if e.kind == "INCOME" else 1))
+
+    return {
+        "persona_id": "imran",
+        "generated_for": TODAY.isoformat(),
+        "start": START.isoformat(),
+        "n_days": N_DAYS,
+        "drought": {
+            "start_idx": DROUGHT_START_IDX,
+            "start": (START + timedelta(days=DROUGHT_START_IDX)).isoformat(),
+            "days": DROUGHT_LEN,
+        },
+        "obligations": [
+            {"label": "Car Loan EMI", "amount": 8200, "day_of_month": 7, "category": "EMI"},
+            {"label": "Family Remittance", "amount": 3500, "day_of_month": 10, "category": "FAMILY"},
+            {"label": "Fastag & Tolls", "amount": 1200, "day_of_month": 15, "category": "TRANSPORT"},
+            {"label": "Data Pack", "amount": 499, "day_of_month": 22, "category": "UTILITY"},
+        ],
+        "sinking_targets": [
+            {"label": "Commercial Vehicle Insurance", "amount": 16000,
+             "due": INSURANCE_DUE.isoformat(), "category": "INSURANCE"},
+        ],
+        "bounce_fee": 650,
+        "opening_balance": 3000,
+        "events": [asdict(e) for e in events],
+    }
+
+
+def generate(persona_id: str = "ravi") -> dict:
+    pid = persona_id.lower()
+    if pid == "sunita":
+        return generate_sunita()
+    elif pid == "imran":
+        return generate_imran()
+    return generate_ravi()
+
+
+def write(path: str | Path = "data/seed.json", persona_id: str = "ravi") -> dict:
+    payload = generate(persona_id)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload, indent=1))
     return payload
 
 
+def write_all(base_dir: str | Path = "data"):
+    b = Path(base_dir)
+    b.mkdir(parents=True, exist_ok=True)
+    # Default seed.json is Ravi for backward compatibility
+    r = write(b / "seed.json", "ravi")
+    write(b / "seed_ravi.json", "ravi")
+    write(b / "seed_sunita.json", "sunita")
+    write(b / "seed_imran.json", "imran")
+    return r
+
+
 if __name__ == "__main__":
-    d = write()
-    print(f"wrote data/seed.json: {len(d['events'])} events over {d['n_days']} days")
+    d = write_all()
+    print(f"wrote data/seed.json and all persona seeds (ravi, sunita, imran)")
+

@@ -54,21 +54,18 @@ app.add_middleware(
 PERSONAS = [
     {"id": "ravi", "name": "Ravi", "age": 29, "role": "Delivery partner",
      "city": "Bengaluru", "active": True,
-     "blurb": "Rides for two platforms. Bike EMI on the 5th. Earns more than an "
-              "entry-level salaried job, and is far more fragile."},
+     "blurb": "Rides for Swiggy/Zomato. Bike EMI on the 5th. 180 days of realistic cash flow data."},
     {"id": "sunita", "name": "Sunita", "age": 41, "role": "Domestic worker",
-     "city": "Jaipur", "active": False,
-     "blurb": "Five homes, cash wages on dates that vary. Saves in a chit fund "
-              "because it is the only savings she trusts."},
+     "city": "Jaipur", "active": True,
+     "blurb": "Five household employers, cash & sporadic bank wages. Saves in a chit fund."},
     {"id": "imran", "name": "Imran", "age": 34, "role": "Cab driver",
-     "city": "Pune", "active": False,
-     "blurb": "Grosses Rs 45,000, nets Rs 18,000. Dreads the Rs 14,000 annual "
-              "insurance bill every March."},
+     "city": "Pune", "active": True,
+     "blurb": "Commercial cab driver. Grosses Rs 45,000, nets Rs 18,000. Vehicle insurance sinking fund."},
 ]
 
 
-def st() -> AppState:
-    return AppState.get()
+def st(persona_id: str | None = None) -> AppState:
+    return AppState.get(persona_id)
 
 
 class SessionRequest(BaseModel):
@@ -77,29 +74,19 @@ class SessionRequest(BaseModel):
 
 @app.post("/api/session")
 def session(req: SessionRequest) -> dict:
-    """Persona picker stands in for auth. IMPLEMENTATION_PLAN.md section 1 cuts
-    auth/KYC entirely: it carries no narrative value and costs real hours.
-
-    Only Ravi has a seeded 180-day history. The other two personas are listed
-    so the segment is visible, and selecting one is refused explicitly rather
-    than silently falling back to Ravi -- a demo that pretends to switch users
-    and does not is worse than one that says it cannot.
-    """
     alias_map = {
         "bengaluru_rider": "ravi",
         "ramesh": "ravi",
         "mumbai_driver": "imran",
         "suresh": "imran",
+        "jaipur_worker": "sunita",
     }
     pid = alias_map.get(req.persona_id.lower(), req.persona_id.lower())
     match = next((p for p in PERSONAS if p["id"] == pid), None)
     if match is None:
         raise HTTPException(404, f"no persona {req.persona_id!r}")
-    if not match["active"]:
-        raise HTTPException(
-            409, f"{match['name']} has no seeded history in this build. "
-                 "Ravi is the only persona with 180 days of data.")
-    s = st()
+    AppState.set_active_persona(match["id"])
+    s = st(match["id"])
     return {"session_id": f"demo-{match['id']}", "persona": match,
             "as_of": s.ds.today.isoformat(), "days_of_history": s.ds.n_days,
             "consent": {"source": "mock Account Aggregator",
@@ -183,8 +170,9 @@ def dashboard() -> dict:
     q30 = s.hf30.predict(s.ds.income, t=s.today)
     iss = scorecard_mod.income_stability_score(s.ds, s.today)
 
+    current_persona = next((p for p in PERSONAS if p["id"] == s.persona_id), PERSONAS[0])
     return {
-        "persona": PERSONAS[0],
+        "persona": current_persona,
         "as_of": s.ds.today.isoformat(),
         "balances": {
             "account": summ["settlement"],
@@ -355,6 +343,7 @@ class AskRequest(BaseModel):
     text: str
     history: list[dict] | None = None
     force_deterministic: bool = False
+    lang: str = "en"
 
 
 class ChatRequest(BaseModel):
@@ -363,17 +352,18 @@ class ChatRequest(BaseModel):
     persona_id: str = "ravi"
     history: list[dict] | None = None
     force_deterministic: bool = False
+    lang: str = "en"
 
 
 @app.post("/api/assistant/ask")
 def assistant(req: AskRequest) -> dict:
-    turn = assistant_ask(req.text, history=req.history, force_deterministic=req.force_deterministic)
+    turn = assistant_ask(req.text, history=req.history, force_deterministic=req.force_deterministic, lang=req.lang)
     return turn.to_dict()
 
 
 @app.post("/api/assistant/chat")
 def assistant_chat(req: ChatRequest) -> dict:
-    turn = assistant_ask(req.message, history=req.history, force_deterministic=req.force_deterministic)
+    turn = assistant_ask(req.message, history=req.history, force_deterministic=req.force_deterministic, lang=req.lang)
     return turn.to_dict()
 
 
@@ -686,6 +676,34 @@ def get_transaction_receipt(identifier: str):
     }
     media_type = media_map.get(matched_file.suffix.lower(), "application/octet-stream")
     return FileResponse(matched_file, media_type=media_type)
+
+
+class FeedbackRequest(BaseModel):
+    user_id: str = "ravi"
+    useful: bool = True
+    comment: str = ""
+    feature: str = "general"
+
+
+@app.post("/api/feedback")
+def submit_feedback(req: FeedbackRequest) -> dict:
+    """Store lightweight real user validation feedback in the local ledger."""
+    s = st()
+    entry = s.dhara.ledger.save_feedback(
+        user_id=req.user_id,
+        useful=req.useful,
+        comment=req.comment,
+        feature=req.feature,
+    )
+    return {"status": "ok", "feedback": entry}
+
+
+@app.get("/api/feedback")
+def get_feedback_list(limit: int = 50) -> dict:
+    """Retrieve recorded user validation feedback."""
+    s = st()
+    entries = s.dhara.ledger.get_feedback(limit=limit)
+    return {"count": len(entries), "feedback": entries}
 
 
 @app.get("/")

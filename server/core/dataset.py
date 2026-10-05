@@ -83,8 +83,12 @@ class Dataset:
         return out
 
 
-@lru_cache(maxsize=4)
-def load(path: str = "data/seed.json") -> Dataset:
+@lru_cache(maxsize=8)
+def load(path: str = "data/seed.json", persona_id: str | None = None) -> Dataset:
+    if persona_id:
+        target_path = Path(f"data/seed_{persona_id.lower()}.json")
+        if target_path.exists():
+            path = str(target_path)
     raw = json.loads(Path(path).read_text())
     n = raw["n_days"]
     start = date.fromisoformat(raw["start"])

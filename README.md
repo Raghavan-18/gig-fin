@@ -67,18 +67,21 @@ The backend (`server/`) is organized as follows:
 
 ---
 
+### Personas & Replay Simulator
+
+- **Ravi** — Swiggy/Zomato Food Delivery Partner (Bengaluru).
+- **Sunita** — Domestic Housekeeping & Cook Partner (Jaipur).
+- **Imran** — Rideshare Cab & Parcel Driver (Pune).
+
+---
+
 ## 🧪 Tests
 
-To run the backend tests:
+To run the complete test suite (acceptance, assistant red-team, cash-receipts, and deterministic financial rules):
 
 ```bash
 cd server
-
-# Run acceptance tests (ledger, sweeps, forecast calibration, comparison)
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_acceptance.py -v
-
-# Run assistant red-team (adversarial numeric questions, zero unsourced numbers)
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_assistant.py -v
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 ```
 
 ---

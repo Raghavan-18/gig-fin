@@ -11,6 +11,8 @@ import Modal from '../components/Modal';
 import Input from '../components/Input';
 import { useApp } from '../context/useApp';
 import { dharaApi } from '../services/dharaApi';
+import DroughtReplaySimulator from '../components/DroughtReplaySimulator';
+import UserFeedbackWidget from '../components/UserFeedbackWidget';
 import {
   History,
   AlertTriangle,
@@ -209,6 +211,9 @@ export default function SavingsPage() {
         {/* Insurance Sinking Fund */}
         <InsuranceFundCard backendSinking={sinking} />
 
+        {/* Interactive Drought Replay Simulator (Requirement 21) */}
+        <DroughtReplaySimulator />
+
         {/* Recent Daily Sweep Records from Ledger */}
         <Card className="p-6 border-slate-800 text-left space-y-4">
           <div className="flex items-center justify-between">
@@ -262,6 +267,9 @@ export default function SavingsPage() {
             ))}
           </div>
         </Card>
+
+        {/* Lightweight User Validation Feedback */}
+        <UserFeedbackWidget feature="savings" />
       </div>
 
       {/* Modal: Withdraw (Simulated Money Movement) */}

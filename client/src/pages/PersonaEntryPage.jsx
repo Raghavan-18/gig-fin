@@ -28,23 +28,23 @@ export default function PersonaEntryPage() {
       role: 'Delivery partner',
       city: 'Bengaluru',
       active: true,
-      blurb: 'Rides for two platforms. Bike EMI on the 5th. 180 days seeded financial data.',
+      blurb: 'Rides for Swiggy/Zomato. Bike EMI on the 5th. 180 days of realistic cash flow data.',
     },
     {
       id: 'sunita',
       name: 'Sunita',
       role: 'Domestic worker',
       city: 'Jaipur',
-      active: false,
-      blurb: 'Five homes, cash wages. Saves in a chit fund. (Unseeded in this build)',
+      active: true,
+      blurb: 'Five household employers, cash & sporadic bank wages. Saves in a chit fund.',
     },
     {
       id: 'imran',
       name: 'Imran',
       role: 'Cab driver',
       city: 'Pune',
-      active: false,
-      blurb: 'Grosses Rs 45,000, nets Rs 18,000. Annual insurance bill. (Unseeded in this build)',
+      active: true,
+      blurb: 'Commercial cab driver. Grosses Rs 45,000, nets Rs 18,000. Vehicle insurance sinking fund.',
     },
   ]);
 
