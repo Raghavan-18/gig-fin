@@ -11,12 +11,10 @@ import {
   CloudRain,
   Sun,
   ShieldCheck,
-  AlertTriangle,
   Sparkles,
   TrendingUp,
   Wallet,
   Calendar,
-  CheckCircle2,
 } from 'lucide-react';
 
 const STAGES = [
@@ -28,7 +26,6 @@ const STAGES = [
 
 export default function DroughtReplaySimulator({ className = '' }) {
   const [days, setDays] = useState([]);
-  const [droughtMeta, setDroughtMeta] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -43,7 +40,6 @@ export default function DroughtReplaySimulator({ className = '' }) {
         if (!active) return;
         if (res && res.days && res.days.length > 0) {
           setDays(res.days);
-          setDroughtMeta(res.drought);
         }
       })
       .catch((err) => {

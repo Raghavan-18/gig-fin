@@ -12,6 +12,7 @@ import ComparisonCard from '../components/ComparisonCard';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { useApp } from '../context/useApp';
+import { dharaApi } from '../services/dharaApi';
 import DroughtReplaySimulator from '../components/DroughtReplaySimulator';
 import UserFeedbackWidget from '../components/UserFeedbackWidget';
 import {
@@ -27,7 +28,6 @@ import {
   AlertTriangle,
   RefreshCw,
   FileCheck,
-  Shield,
   Activity,
   CheckCircle2,
   Target,

@@ -26,6 +26,8 @@ export default function Button({
       'bg-transparent text-slate-400 hover:text-white hover:bg-slate-800/60 focus:ring-slate-500',
     emerald:
       'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/25 hover:from-emerald-500 hover:to-teal-500 focus:ring-emerald-500 border border-emerald-400/20',
+    amber:
+      'bg-amber-600/20 text-amber-300 border border-amber-500/30 hover:bg-amber-600/30 focus:ring-amber-500',
     danger:
       'bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 focus:ring-rose-500',
   };
